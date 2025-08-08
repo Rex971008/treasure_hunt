@@ -13,7 +13,7 @@
             --visible-transition: background-color 0.4s ease, opacity 0.4s ease;
         }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; background-color: var(--primary-bg); color: var(--text-color); overflow: hidden; -webkit-user-select: none; user-select: none; }
-        .screen { display: none; width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; text-align: center; box-sizing: border-box; padding: 20px; animation: fadeIn 0.5s ease-in-out; position: relative; }
+        .screen { display: none; width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; text-align: center; box-sizing: border-box; padding: 20px; animation: fadeIn 0.5s ease-in-out; position: relative; z-index: 1; /* Ensure screens are above general background elements */ }
         .screen.active { display: flex; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         h1 { font-size: 3em; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
@@ -144,11 +144,11 @@
         /* 勝利畫面佈局 */
         #win-screen {
             position: relative;
-            /* Ensure children are positioned correctly */
             flex-direction: column;
             justify-content: center;
             align-items: center;
             overflow: hidden; /* Hide confetti overflow */
+            background-color: transparent; /* MODIFIED: Make screen transparent to see video */
         }
         #riddle-box {
             background: rgba(0,0,0,0.7); /* Make background darker for contrast */
@@ -179,23 +179,20 @@
             pointer-events: none; /* Allow clicks on buttons beneath */
         }
 
-        /* 遊戲結束畫面影片背景 */
-        #game-over-screen {
-            position: relative; /* Ensure content is positioned relative to this */
-            display: none; /* Initially hidden */
-        }
-        #game-over-screen.active {
-            display: flex;
-        }
-        #game-over-video {
-            position: absolute;
+        /* 遊戲結束畫面影片背景 - 全局定位 */
+        #background-video { /* Changed ID to be generic for background video */
+            position: fixed; /* Use fixed for full viewport coverage */
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 確保影片覆蓋整個區域，不變形 */
-            z-index: -1; /* 放置在內容之後 */
+            object-fit: cover; /* Cover the entire area */
+            z-index: -2; /* Ensure it's behind all screen content */
+            opacity: 0; /* Initially hidden */
+            transition: opacity 0.5s ease; /* Smooth fade in/out */
+            pointer-events: none; /* Do not block mouse events */
         }
+
         /* 確保結束畫面的文字和按鈕在影片之上且可讀 */
         #game-over-screen h1,
         #game-over-screen p,
@@ -209,6 +206,12 @@
     </style>
 </head>
 <body>
+    <!-- 全局背景影片，通過JS控制其透明度來顯示/隱藏 -->
+    <video id="background-video" autoplay loop muted playsinline>
+        <source src="images/gameover_bg.mp4" type="video/mp4">
+        您的瀏覽器不支持影片播放。
+    </video>
+
     <div id="start-screen" class="screen active"><h1>父親節大冒險</h1><h2>親愛的爸爸，父親節快樂！</h2><p>在迷宮深處，藏著一份給你的父親節驚喜...<br>請勇敢地去尋找它吧！</p><button id="start-game-btn" class="button">開始冒險！</button></div>
     <div id="game-screen" class="screen">
         <div id="game-container">
@@ -224,7 +227,6 @@
                     <div id="bomb-counter">💣<span id="bomb-count-text">10</span></div>
                     <div id="dart-counter">🪃<span id="dart-count-text">5</span></div>
                 </div>
-                <!-- 原有的 '放棄挑戰' 按鈕已移除 -->
             </div>
 
             <div id="joystick-container"><div id="joystick-base"><div id="joystick-handle"></div></div></div>
@@ -246,12 +248,7 @@
         </div>
     </div>
     <div id="game-over-screen" class="screen">
-        <video id="game-over-video" autoplay loop muted playsinline>
-            <source src="images/gameover_bg.mp4" type="video/mp4">
-            <!-- 您可以添加其他影片格式以提高兼容性，例如： -->
-            <!-- <source src="images/gameover_bg.webm" type="video/webm"> -->
-            您的瀏覽器不支持影片播放。
-        </video>
+        <!-- 影片現在是全局背景，不再是此div的子元素 -->
         <h1>哎呀！被抓到了！</h1>
         <p>別灰心，冒險總是充滿挑戰，正如人生一般。</p>
         <button id="retry-btn" class="button">沒問題，怎麼可能會放棄！</button><button id="back-to-menu-btn" class="button">回到開始畫面</button></div>
@@ -262,12 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 變數宣告區 ---
     const screens = { start: document.getElementById('start-screen'), game: document.getElementById('game-screen'), win: document.getElementById('win-screen'), gameOver: document.getElementById('game-over-screen') };
     const mazeEl = document.getElementById("maze"), playerEl = document.getElementById("player"), gameContainer = document.getElementById("game-container"), joystickContainer = document.getElementById("joystick-container"), joystickHandle = document.getElementById("joystick-handle");
-    const bombCountTextSpan = document.getElementById("bomb-count-text"), placeBombBtn = document.getElementById("place-bomb-btn"); // Changed to access span directly
-    const dartCountTextSpan = document.getElementById("dart-count-text"), shootDartBtn = document.getElementById("shoot-dart-btn"); // Changed to access span directly
+    const bombCountTextSpan = document.getElementById("bomb-count-text"), placeBombBtn = document.getElementById("place-bomb-btn");
+    const dartCountTextSpan = document.getElementById("dart-count-text"), shootDartBtn = document.getElementById("shoot-dart-btn");
     const notificationOverlay = document.getElementById("notification-overlay"), notificationText = document.getElementById("notification-text"), notificationCloseBtn = document.getElementById("notification-close-btn");
-    const gameOverVideo = document.getElementById("game-over-video"); // 遊戲結束影片元素
-    
-    // 找到的字樣 UI 元素 (現在在 #top-ui-bar 內)
+    const backgroundVideo = document.getElementById("background-video"); // 影片元素改為全局ID
+
+    // 找到的字樣 UI 元素
     const foundCharsDisplay = document.getElementById("found-chars-display");
     const charSpans = [
         document.getElementById("char-0"),
@@ -276,40 +273,26 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     // --- 遊戲狀態與設定 ---
-    const TREASURE_CHARS = ["安", "全", "帽"]; // 定義要找的字
-    // 持久化狀態：記錄哪些字已經被找到了。只有從開始畫面重新開始才會重置。
+    const TREASURE_CHARS = ["安", "全", "帽"];
     let foundCharactersPersistent = new Array(TREASURE_CHARS.length).fill(false);
 
     let gameState = {
-        mazeData: [],
-        playerPos: { x: 0, y: 0 },
-        treasures: [], // 寶藏陣列: [{pos: {x,y}, char: '安', found: false, id: 'treasure-安'}, ...]
-        monsters: [],
-        bombsRemaining: 0,
-        placedBombs: [],
-        dartsRemaining: 0, // 新增飛鏢數量
-        activeDarts: [], // 追蹤飛行中的飛鏢
-        foundTreasuresCount: 0, // 當前遊戲回合中找到的寶藏數量
-        foundChars: ['', '', ''], // 當前遊戲回合中找到的字樣，用於顯示
-        playerLastDirection: 'right', // 記錄玩家最後一次移動的方向，用於發射飛鏢
+        mazeData: [], playerPos: { x: 0, y: 0 }, treasures: [], monsters: [],
+        bombsRemaining: 0, placedBombs: [], dartsRemaining: 0, activeDarts: [],
+        foundTreasuresCount: 0, foundChars: ['', '', ''], playerLastDirection: 'right',
     };
     let gameSession = { currentMoveSpeed: 120, isPaused: false };
     
-    // --- 重構後的玩家移動狀態 ---
     let playerMovement = {
-        activeKeyboardDirections: new Set(), // 儲存所有目前按下的移動鍵 (例如 'up', 'left')
-        joystickDirection: null,             // 儲存搖桿當前提供的方向
-        currentExecutingDirection: null,     // 玩家實際正在執行並移動的方向
-        nextDesiredDirection: null,          // 玩家期望的下一個方向 (用於平滑切換)
-        moveInterval: null,
-        lastPos: { x: -1, y: -1 }
+        activeKeyboardDirections: new Set(), joystickDirection: null,
+        currentExecutingDirection: null, nextDesiredDirection: null,
+        moveInterval: null, lastPos: { x: -1, y: -1 }
     };
     
-    const levelConfig = { w: 15, h: 10, m: 5, initialBombs: 10, initialDarts: 5 }; // 新增初始飛鏢數量
+    const levelConfig = { w: 15, h: 10, m: 5, initialBombs: 10, initialDarts: 5 };
     const FOV_RADIUS = 10;
-    // 怪物速度減慢 (值越大越慢)
     const MONSTER_TIERS = [ 
-        {level:1,colorFilter:"hue-rotate(0deg) saturate(0.8)",speed:1500}, // 更慢
+        {level:1,colorFilter:"hue-rotate(0deg) saturate(0.8)",speed:1500},
         {level:2,colorFilter:"hue-rotate(90deg) saturate(1.2)",speed:1200}, 
         {level:3,colorFilter:"hue-rotate(200deg) saturate(1.5)",speed:900} 
     ];
@@ -317,32 +300,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 彩帶特效相關變數
     let confettiCanvas, confettiCtx, confettiParticles = [], confettiAnimationId;
-    let burstSequenceTimerId; // 用於控制序列化噴發的定時器 ID
-
-    // 定義六個發射點的 Y 軸比例 (從上到下: 5&6, 3&4, 1&2 的視覺位置)
-    // 數字越小越靠近頂部，數字越大越靠近底部
+    let burstSequenceTimerId; 
     const emitterYPositions = [0.2, 0.5, 0.8]; 
-
-    // 定義噴發的順序，從下往上 (1&2 -> 3&4 -> 5&6)
-    // 對應 emitterYPositions 的索引: 2 (底部), 1 (中間), 0 (頂部)
-    const burstOrderIndices = [2, 1, 0]; 
-    let currentBurstIndexInRound = 0; // 當前在這一輪中的噴發索引 (0, 1, 2)
-
-    const burstBetweenPairsDelayMs = 200; // 同一輪中，每對發射點之間的延遲 (例如 1&2 噴發後，200ms 再 3&4)
-    const delayBetweenRoundsMs = 2000;   // 每輪噴發完成後，與下一輪開始的延遲 (2秒)
-
+    const burstOrderIndices = [2, 1, 0]; // 從下往上
+    let currentBurstIndexInRound = 0; 
+    const burstBetweenPairsDelayMs = 200;
+    const delayBetweenRoundsMs = 2000;
 
     // --- 核心功能 ---
     function showScreen(screenName) { 
         Object.values(screens).forEach(s => s.classList.remove('active')); 
         if(screens[screenName]) {
             screens[screenName].classList.add('active');
-            // 處理遊戲結束影片播放
-            if (screenName === 'gameOver' && gameOverVideo) {
-                gameOverVideo.play();
-            } else if (gameOverVideo) {
-                gameOverVideo.pause();
-                gameOverVideo.currentTime = 0; // 重置影片到開頭
+            // MODIFIED: 控制全局背景影片的顯示與播放
+            if (screenName === 'gameOver' || screenName === 'win') {
+                backgroundVideo.style.opacity = '1';
+                backgroundVideo.play().catch(e => console.log("Video play failed:", e));
+            } else {
+                backgroundVideo.style.opacity = '0';
+                backgroundVideo.pause();
+                backgroundVideo.currentTime = 0;
             }
         }
     }
@@ -352,39 +329,29 @@ document.addEventListener('DOMContentLoaded', () => {
     function mainGameLoop() {
         if (gameSession.isPaused) return;
 
-        // 1. 根據輸入更新玩家的移動意圖
         updatePlayerMovementIntents();
 
         let finalMoveDirection = null;
 
-        // --- 平滑移動邏輯 ---
-        // Step 1: Check if the 'next desired' direction is immediately executable
         if (playerMovement.nextDesiredDirection && canMove(gameState.playerPos, playerMovement.nextDesiredDirection)) {
             finalMoveDirection = playerMovement.nextDesiredDirection;
-            playerMovement.currentExecutingDirection = finalMoveDirection; // Adopt the new direction
-            playerMovement.nextDesiredDirection = null; // Clear the queued direction
-        }
-        // Step 2: If not, try to continue with the 'current executing' direction
-        else if (playerMovement.currentExecutingDirection && canMove(gameState.playerPos, playerMovement.currentExecutingDirection)) {
+            playerMovement.currentExecutingDirection = finalMoveDirection;
+            playerMovement.nextDesiredDirection = null;
+        } else if (playerMovement.currentExecutingDirection && canMove(gameState.playerPos, playerMovement.currentExecutingDirection)) {
             finalMoveDirection = playerMovement.currentExecutingDirection;
-            // No change to currentExecutingDirection, it continues
-            // nextDesiredDirection (if any) remains queued if it couldn't be executed
         } else {
-            // No valid direction to move in (either blocked or no input)
-            playerMovement.currentExecutingDirection = null; // Stop execution
-            playerMovement.nextDesiredDirection = null; // Clear any queued
+            playerMovement.currentExecutingDirection = null;
+            playerMovement.nextDesiredDirection = null;
         }
-        // --- End Smooth Movement Logic ---
 
         if (finalMoveDirection) {
             let newPos = { ...gameState.playerPos };
             if (finalMoveDirection === 'up') newPos.y--; else if (finalMoveDirection === 'down') newPos.y++; else if (finalMoveDirection === 'left') newPos.x--; else if (finalMoveDirection === 'right') newPos.x++;
             gameState.playerPos = newPos;
             centerViewOnPlayer(true);
-            gameState.playerLastDirection = finalMoveDirection; // 記錄實際成功移動的方向
+            gameState.playerLastDirection = finalMoveDirection;
         }
         
-        // 視野更新及上次移動方向記錄 (只有當玩家位置改變時才更新)
         if (playerMovement.lastPos.x !== gameState.playerPos.x || playerMovement.lastPos.y !== gameState.playerPos.y) {
             computeFov();
             updateFovDisplay();
@@ -392,13 +359,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
-        // 怪物移動邏輯
         for (const monster of gameState.monsters) { 
-            // 如果怪物在視野外，且沒有上次已知位置，則停止追逐，讓它返回生成點
             if (!visibleCells.has(`${monster.pos.x},${monster.pos.y}`) && monster.state === "CHASING" && !monster.lastKnownPlayerPos) {
                  monster.state = "RETURNING"; 
             }
-
             monster.moveCooldown += gameSession.currentMoveSpeed;
             if (monster.moveCooldown >= monster.speed) { 
                 updateSingleMonsterAI(monster);
@@ -409,19 +373,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         checkBombCollisions();
-        checkPlayerPosition(); // 這會檢查寶藏和怪物碰撞
+        checkPlayerPosition();
     }
 
     // --- 新增：根據所有輸入更新玩家移動意圖的狀態機 ---
     function updatePlayerMovementIntents() {
         let highestPriorityInputDirection = null;
-        const priorityOrder = ['up', 'down', 'left', 'right']; // 鍵盤方向的優先順序
+        const priorityOrder = ['up', 'down', 'left', 'right'];
 
-        // 優先考慮搖桿輸入
         if (playerMovement.joystickDirection) {
             highestPriorityInputDirection = playerMovement.joystickDirection;
         } else {
-            // 處理鍵盤輸入，根據優先順序選擇一個方向
             for (const dir of priorityOrder) {
                 if (playerMovement.activeKeyboardDirections.has(dir)) {
                     highestPriorityInputDirection = dir;
@@ -430,20 +392,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // --- 更新 playerMovement 狀態變數 ---
         if (highestPriorityInputDirection === null) {
-            // 如果沒有任何移動輸入，則不再有新的「期望方向」
             playerMovement.nextDesiredDirection = null;
-            // currentExecutingDirection 將在 mainGameLoop 中判斷是否繼續或停止
         } else if (playerMovement.currentExecutingDirection === null) {
-            // 如果目前沒有在移動，則將最高優先級的輸入方向設為當前執行方向
             playerMovement.currentExecutingDirection = highestPriorityInputDirection;
             playerMovement.nextDesiredDirection = null;
         } else if (highestPriorityInputDirection !== playerMovement.currentExecutingDirection) {
-            // 如果最高優先級的輸入方向與當前執行方向不同，則將其設為下一個期望方向（用於轉彎緩衝）
             playerMovement.nextDesiredDirection = highestPriorityInputDirection;
         } else {
-            // 如果新的期望方向與當前方向相同，且沒有等待的 nextDesiredDirection，則清空 nextDesiredDirection
             playerMovement.nextDesiredDirection = null;
         }
     }
@@ -455,20 +411,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateSingleMonsterAI(monster) {
         const playerVisible = isPlayerVisible(monster.pos, gameState.playerPos);
         switch (monster.state) {
-            case "IDLE": 
-                if(playerVisible) monster.state="CHASING"; 
-                break;
-            case "CHASING": 
-                if(playerVisible) { monster.lastKnownPlayerPos={...gameState.playerPos} } 
-                else { monster.state="SEARCHING" } 
-                break;
-            case "SEARCHING": 
-                if(playerVisible) { monster.state="CHASING" } 
-                else if(monster.pos.x===monster.lastKnownPlayerPos?.x&&monster.pos.y===monster.lastKnownPlayerPos?.y) { monster.state="RETURNING" } 
-                break;
-            case "RETURNING": 
-                if(monster.pos.x===monster.spawnPos.x&&monster.pos.y===monster.spawnPos.y) { monster.state="IDLE" } 
-                break;
+            case "IDLE": if(playerVisible) monster.state="CHASING"; break;
+            case "CHASING": if(playerVisible) { monster.lastKnownPlayerPos={...gameState.playerPos} } else { monster.state="SEARCHING" } break;
+            case "SEARCHING": if(playerVisible) { monster.state="CHASING" } else if(monster.pos.x===monster.lastKnownPlayerPos?.x&&monster.pos.y===monster.lastKnownPlayerPos?.y) { monster.state="RETURNING" } break;
+            case "RETURNING": if(monster.pos.x===monster.spawnPos.x&&monster.pos.y===monster.spawnPos.y) { monster.state="IDLE" } break;
         }
         let targetPos = null;
         if(monster.state==="CHASING") targetPos = gameState.playerPos;
@@ -480,7 +426,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (path && path.length > 1) { 
                 monster.pos = path[1]; 
             } else if (monster.state === "SEARCHING" && !path) {
-                // 如果在 SEARCHING 狀態但找不到路徑，可能是玩家從未知的點移走，或目標點被阻擋，此時讓怪物返回
                 monster.state = "RETURNING";
             }
         }
@@ -489,43 +434,35 @@ document.addEventListener('DOMContentLoaded', () => {
     function checkPlayerPosition() {
         if (gameSession.isPaused) return;
 
-        // 1. 檢查是否找到寶藏（字）
         for (let i = 0; i < gameState.treasures.length; i++) {
             const treasure = gameState.treasures[i];
-            // 只有未找到的寶藏才能被收集
             if (!treasure.found && gameState.playerPos.x === treasure.pos.x && gameState.playerPos.y === treasure.pos.y) {
+                treasure.found = true;
+                gameState.foundTreasuresCount++;
                 
-                treasure.found = true; // 標記為當前遊戲中已找到
-                gameState.foundTreasuresCount++; // 當前遊戲回合找到的數量增加
-                
-                // 找到該字在 TREASURE_CHARS 中的索引
-                const charIndex = TREASURE_CHARS.indexOf(treasure.originalChar); // 使用 originalChar
+                const charIndex = TREASURE_CHARS.indexOf(treasure.originalChar);
                 if (charIndex !== -1) {
-                    gameState.foundChars[charIndex] = treasure.originalChar; // 更新當前遊戲的顯示字樣
-                    foundCharactersPersistent[charIndex] = true; // 更新持久化狀態
-                    updateFoundCharsDisplay(); // 更新 UI 顯示
+                    gameState.foundChars[charIndex] = treasure.originalChar;
+                    foundCharactersPersistent[charIndex] = true;
+                    updateFoundCharsDisplay();
                 }
                 
-                // 更新已找到的寶藏的外觀，從 🎁 變為 📦
                 const treasureEl = document.getElementById(treasure.id);
                 if (treasureEl) {
                     treasureEl.textContent = '📦';
-                    treasureEl.classList.add('found-item'); // 添加樣式讓它變暗/不同
+                    treasureEl.classList.add('found-item');
                 }
                 
-                showNotification(`恭喜你找到了「${treasure.originalChar}」！`); // 顯示找到哪個字的通知
+                showNotification(`恭喜你找到了「${treasure.originalChar}」！`);
                 
-                // 如果所有預設的寶藏都已經被找到 (包括之前回合找到的)
                 if (foundCharactersPersistent.every(isFound => isFound)) {
                     winGame();
-                    return; // 遊戲結束
+                    return;
                 }
             }
         }
 
-        // 2. 檢查是否被怪物抓到
         for (const monster of gameState.monsters) { 
-            // 修正：檢查玩家的 X 和 Y 座標是否都與怪物相同
             if (monster.pos.x === gameState.playerPos.x && monster.pos.y === gameState.playerPos.y) { 
                 gameOver(); 
                 return; 
@@ -537,23 +474,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function winGame() { 
         clearGameListeners(); 
         showScreen("win"); 
-        initConfetti(); // 初始化彩帶canvas
-        triggerNextConfettiBurstSequence(); // 開始彩帶動畫
+        initConfetti();
+        triggerNextConfettiBurstSequence();
     }
     function gameOver() { clearGameListeners(); showScreen("gameOver"); }
 
-    function startGame(resetPersistent = true) { // 增加一個參數，控制是否重置持久化狀態
-        clearGameListeners(); // 清除之前的監聽器和遊戲狀態，包括所有活動的飛鏢
+    function startGame(resetPersistent = true) {
+        clearGameListeners();
         
         gameState.bombsRemaining = levelConfig.initialBombs;
         gameState.placedBombs = [];
-        gameState.dartsRemaining = levelConfig.initialDarts; // 初始化飛鏢數量
-        gameState.activeDarts = []; // 清空飛行中的飛鏢
-        gameState.foundTreasuresCount = 0; // 重置當前遊戲回合的寶藏計數
-        gameState.foundChars = ['', '', '']; // 重置當前遊戲回合的字樣顯示
-        gameState.playerLastDirection = 'right'; // 重置玩家最後方向（預設值）
+        gameState.dartsRemaining = levelConfig.initialDarts;
+        gameState.activeDarts = [];
+        gameState.foundTreasuresCount = 0;
+        gameState.foundChars = ['', '', ''];
+        gameState.playerLastDirection = 'right';
 
-        // 重置移動狀態
         playerMovement.activeKeyboardDirections.clear();
         playerMovement.joystickDirection = null;
         playerMovement.currentExecutingDirection = null;
@@ -561,54 +497,49 @@ document.addEventListener('DOMContentLoaded', () => {
         playerMovement.lastPos = { x: -1, y: -1 };
 
 
-        if (resetPersistent) { // 只有當從開始畫面點擊時才重置持久化狀態
+        if (resetPersistent) {
             foundCharactersPersistent.fill(false);
         }
 
-        // 根據持久化狀態初始化 gameState.foundChars 和 gameState.foundTreasuresCount
         TREASURE_CHARS.forEach((char, index) => {
             if (foundCharactersPersistent[index]) {
                 gameState.foundChars[index] = char;
             }
         });
-        // 重新計算 foundTreasuresCount 以確保正確反映持久化狀態中已找到的字
         gameState.foundTreasuresCount = foundCharactersPersistent.filter(Boolean).length;
 
 
         updateBombUI();
-        updateDartUI(); // 更新飛鏢 UI
-        updateFoundCharsDisplay(); // 根據初始化後的 gameState.foundChars 更新 UI
+        updateDartUI();
+        updateFoundCharsDisplay();
         
         gameSession = { currentMoveSpeed: 120, isPaused: false };
         const playerSeed = 'Yen-Lin-Birthday-Hero';
         playerEl.style.backgroundImage = `url(https://api.dicebear.com/8.x/adventurer/svg?seed=${playerSeed}&radius=50)`;
         
-        renderMaze(); // 這會呼叫 placeTreasureAndMonsters()
+        renderMaze();
         computeFov();
         updateFovDisplay();
         showScreen('game');
         centerViewOnPlayer(false);
         
-        // 重新添加鍵盤監聽器
         document.addEventListener('keydown', handleKeyDown); 
         document.addEventListener('keyup', handleKeyUp);
-        // 設置 UI 監聽器 (包括搖桿和按鈕)
         setupGameUIForDevice(); 
         playerMovement.moveInterval = setInterval(mainGameLoop, gameSession.currentMoveSpeed);
 
         setTimeout(() => {
-            // 修正開始提示，不顯示字
             showNotification(`父親節快樂！找到三個隱藏的禮物，即可通關！並為你準備了${levelConfig.initialBombs}個炸彈 (按空白鍵或點擊右下角按鈕使用)，以及${levelConfig.initialDarts}個飛鏢 (按 F 鍵或點擊右下角按鈕使用)！`);
         }, 500);
     }
     
     // --- 迷宮生成與渲染 ---
     function renderMaze() {
-        mazeEl.innerHTML = ""; // 清空舊迷宮
+        mazeEl.innerHTML = "";
         gameState.monsters = [];
-        gameState.treasures = []; // 清空舊寶藏 (這將在 placeTreasureAndMonsters 中重新填充)
+        gameState.treasures = [];
         gameState.mazeData = generateMaze(levelConfig.w, levelConfig.h, Date.now());
-        placeTreasureAndMonsters(); // 放置寶藏和怪物
+        placeTreasureAndMonsters();
 
         const mazeWidth = gameState.mazeData[0].length;
         const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
@@ -620,14 +551,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cellType === "S") { gameState.playerPos = { x, y }; cellClass = "start"; }
                 else if (cellType === "W") cellClass = "wall";
                 else if (cellType === "P") cellClass = "path";
-                else if (cellType === "T") { cellClass = "treasure-location"; } // 寶藏位置的背景色
+                else if (cellType === "T") { cellClass = "treasure-location"; }
                 content += `<div class="grid-cell ${cellClass}" id="cell-${x}-${y}"></div>`;
             })
         });
         mazeEl.innerHTML = content;
         
-        // 渲染怪物
-        gameState.monsters.forEach(monster => {
+        for (const monster of gameState.monsters) {
             const el = document.createElement("div");
             el.id = `monster-${monster.id}`;
             el.className = "monster";
@@ -635,27 +565,24 @@ document.addEventListener('DOMContentLoaded', () => {
             el.style.transform = `translate(${monster.pos.x * cellSize}px, ${monster.pos.y * cellSize}px)`;
             el.style.filter = monster.colorFilter;
             mazeEl.appendChild(el);
-        });
+        }
 
-        // 渲染寶藏 (新的邏輯，每個寶藏獨立創建)
-        gameState.treasures.forEach(treasure => {
-            // 檢查 treasure.pos 是否存在，避免錯誤
+        for (const treasure of gameState.treasures) {
             if (!treasure.pos) {
                 console.warn(`Treasure ${treasure.originalChar} has no position and will not be rendered.`);
-                return; 
+                continue; 
             }
             const el = document.createElement("div");
             el.id = treasure.id;
             el.className = "treasure";
-            el.textContent = treasure.displayChar; // 顯示 🎁 或 📦
-            // 修正寶藏定位，使其中心位於格子中心
+            el.textContent = treasure.displayChar;
             el.style.left = `${treasure.pos.x * cellSize + cellSize / 2}px`;
             el.style.top = `${treasure.pos.y * cellSize + cellSize / 2}px`;
-            if (treasure.found) { // 如果這個寶藏已經在持久化狀態中被找到，給它一個特殊樣式
+            if (treasure.found) {
                 el.classList.add('found-item');
             }
             mazeEl.appendChild(el);
-        });
+        }
     }
 
     // --- 怪物與寶箱放置 ---
@@ -663,7 +590,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const rng = seededRandom(Date.now());
         let allDeadEnds = [];
 
-        // 找出所有距離起點夠遠的死路
         for (let y = 1; y < gameState.mazeData.length - 1; y++) {
             for (let x = 1; x < gameState.mazeData[y].length - 1; x++) {
                 if (gameState.mazeData[y][x] === 'P') {
@@ -673,70 +599,60 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (gameState.mazeData[y][x-1] === 'W') wallCount++;
                     if (gameState.mazeData[y][x+1] === 'W') wallCount++;
                     if (wallCount >= 3) {
-                        if (getDistance({ x, y }, { x: 1, y: 1 }) > 5) { // 確保距離起點夠遠
+                        if (getDistance({ x, y }, { x: 1, y: 1 }) > 5) {
                             allDeadEnds.push({x, y});
                         }
                     }
                 }
             }
         }
-        allDeadEnds.sort(() => rng() - 0.5); // 隨機打亂死路順序
+        allDeadEnds.sort(() => rng() - 0.5);
 
         gameState.treasures = [];
-        const treasuresToPlaceInThisRound = []; // 當前回合需要實際放置的禮物 (未找到的)
-        const treasuresAlreadyFound = []; // 之前已經找到的禮物 (作為佔位符)
+        const treasuresToPlaceInThisRound = [];
+        const treasuresAlreadyFound = [];
 
-        // 1. 處理所有寶藏：已找到的作為佔位符，未找到的準備放置
         TREASURE_CHARS.forEach((char, index) => {
             if (!foundCharactersPersistent[index]) {
-                // 如果這個字還沒找到，就準備在迷宮中放置它
                 treasuresToPlaceInThisRound.push({ originalChar: char, id: `treasure-${char}`, found: false, displayChar: '🎁' });
             } else {
-                // 如果已經找到，作為一個已打開的空盒子佔位
                 treasuresAlreadyFound.push({ originalChar: char, id: `treasure-${char}`, found: true, displayChar: '📦' });
             }
         });
         
-        // 將未找到的寶藏隨機打亂，以便分配到死路
         treasuresToPlaceInThisRound.sort(() => rng() - 0.5);
 
-        // 2. 優先為當前回合未找到的寶藏分配位置
         for (const t of treasuresToPlaceInThisRound) {
             if (allDeadEnds.length > 0) {
                 const tPos = allDeadEnds.pop();
                 t.pos = tPos;
-                gameState.mazeData[tPos.y][tPos.x] = "T"; // 標記為寶藏位置
-                gameState.treasures.push(t); // 將寶藏加入到遊戲狀態中
+                gameState.mazeData[tPos.y][tPos.x] = "T";
+                gameState.treasures.push(t);
             } else {
                 console.warn(`WARN: Not enough dead ends to place new treasure: ${t.originalChar}. It will not appear this round.`);
-                // 沒有足夠的死路，寶藏將不會被放置
             }
         }
 
-        // 3. 為已找到的寶藏（佔位符）分配位置 (如果還有死路)
         for (const t of treasuresAlreadyFound) {
             if (allDeadEnds.length > 0) {
                 const tPos = allDeadEnds.pop();
                 t.pos = tPos;
                 gameState.mazeData[tPos.y][tPos.x] = "T";
-                gameState.treasures.push(t); // 將已找到的寶藏加入到遊戲狀態中
+                gameState.treasures.push(t);
             } else {
                 console.warn(`WARN: Not enough dead ends for already found treasure: ${t.originalChar}. It will not appear on the map.`);
-                // 如果沒有足夠的死路，已找到的寶藏將不會被放置
             }
         }
 
-
-        // 4. 放置怪物，只使用剩餘的死路
         gameState.monsters = [];
         for (let i = 0; i < levelConfig.m; i++) {
-            if (allDeadEnds.length > 0) { // 檢查是否還有死路可以放怪物
+            if (allDeadEnds.length > 0) {
                 const spawnPoint = allDeadEnds.pop();
                 const tier = MONSTER_TIERS[Math.floor(rng() * MONSTER_TIERS.length)];
                 gameState.monsters.push({ ...tier, id: i, pos: { ...spawnPoint }, spawnPos: { ...spawnPoint }, state: 'IDLE', lastKnownPlayerPos: null, moveCooldown: 0 });
             } else {
                 console.warn(`WARN: Not enough dead ends left for all ${levelConfig.m} monsters. Placed ${i} monsters.`);
-                break; // 沒有足夠的死路可以放怪物了
+                break;
             }
         }
     }
@@ -772,24 +688,22 @@ document.addEventListener('DOMContentLoaded', () => {
         bombEl.id = `bomb-${bombPos.x}-${bombPos.y}`;
         bombEl.className = 'bomb';
         bombEl.textContent = '💣';
-        // 修正炸彈定位，使其中心位於格子中心
         bombEl.style.left = `${bombPos.x * cellSize + cellSize / 2}px`;
         bombEl.style.top = `${bombPos.y * cellSize + cellSize / 2}px`;
         mazeEl.appendChild(bombEl);
     }
     
-    function updateBombUI() { bombCountTextSpan.textContent = gameState.bombsRemaining; } // Access span directly
+    function updateBombUI() { bombCountTextSpan.textContent = gameState.bombsRemaining; }
 
     function triggerExplosion(x, y) {
         const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
         const explosionEl = document.createElement('div');
         explosionEl.className = 'explosion';
         explosionEl.textContent = '💥';
-        // 修正爆炸定位，使其中心位於格子中心
         explosionEl.style.left = `${x * cellSize + cellSize / 2}px`;
         explosionEl.style.top = `${y * cellSize + cellSize / 2}px`;
         mazeEl.appendChild(explosionEl);
-        setTimeout(() => { explosionEl.remove(); }, 500); // 動畫結束後移除
+        setTimeout(() => { explosionEl.remove(); }, 500);
     }
 
     function checkBombCollisions() {
@@ -807,18 +721,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (monstersToRemove.size > 0) {
-            // 移除怪物
             gameState.monsters = gameState.monsters.filter(m => !monstersToRemove.has(m.id));
             monstersToRemove.forEach(id => document.getElementById(`monster-${id}`)?.remove());
 
-            // 移除炸彈
             gameState.placedBombs = gameState.placedBombs.filter(b => !bombsToRemove.some(br => br.x === b.x && br.y === b.y));
             bombsToRemove.forEach(b => document.getElementById(`bomb-${b.x}-${b.y}`)?.remove());
         }
     }
 
     // --- 飛鏢功能 ---
-    function updateDartUI() { dartCountTextSpan.textContent = gameState.dartsRemaining; } // Access span directly
+    function updateDartUI() { dartCountTextSpan.textContent = gameState.dartsRemaining; }
 
     function shootDart() {
         if (gameSession.isPaused) return;
@@ -826,9 +738,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showNotification("你沒有飛鏢了！");
             return;
         }
-        // 捕捉玩家最後的移動方向，如果玩家還沒動，預設向右
         const dartDirection = gameState.playerLastDirection;
-        // 已移除靜止時無法發射的檢查，預設向右或使用最後方向
 
         gameState.dartsRemaining--;
         updateDartUI();
@@ -838,13 +748,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const dartEl = document.createElement('div');
         dartEl.id = dartId;
         dartEl.className = 'dart';
-        dartEl.textContent = '🪃'; // 飛鏢 emoji
+        dartEl.textContent = '🪃';
         mazeEl.appendChild(dartEl);
 
         const dart = { id: dartId, pos: dartPos, direction: dartDirection, element: dartEl, intervalId: null };
         gameState.activeDarts.push(dart);
 
-        const dartMoveSpeed = gameSession.currentMoveSpeed / 3; // 飛鏢速度比玩家快3倍
+        const dartMoveSpeed = gameSession.currentMoveSpeed / 3;
 
         dart.intervalId = setInterval(() => {
             if (gameSession.isPaused) return;
@@ -855,12 +765,11 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (dart.direction === 'left') nextPos.x--;
             else if (dart.direction === 'right') nextPos.x++;
 
-            // 檢查是否超出迷宮範圍或碰到牆壁
             const mazeHeight = gameState.mazeData.length;
             const mazeWidth = gameState.mazeData[0].length;
             if (nextPos.x < 0 || nextPos.x >= mazeWidth ||
                 nextPos.y < 0 || nextPos.y >= mazeHeight ||
-                gameState.mazeData[nextPos.y][nextPos.x] === "W") { // 直接檢查下一個位置是否是牆壁
+                gameState.mazeData[nextPos.y][nextPos.x] === "W") {
                 clearInterval(dart.intervalId);
                 dart.element.remove();
                 gameState.activeDarts = gameState.activeDarts.filter(d => d.id !== dart.id);
@@ -869,18 +778,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             dart.pos = nextPos;
             const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
-            // 修正飛鏢定位，使其中心位於格子中心
             dart.element.style.left = `${dart.pos.x * cellSize + cellSize / 2}px`;
             dart.element.style.top = `${dart.pos.y * cellSize + cellSize / 2}px`;
 
-            // 檢查是否命中怪物
             const monsterHitIndex = gameState.monsters.findIndex(m => m.pos.x === dart.pos.x && m.pos.y === dart.pos.y);
             if (monsterHitIndex !== -1) {
                 const monsterId = gameState.monsters[monsterHitIndex].id;
                 document.getElementById(`monster-${monsterId}`)?.remove();
-                gameState.monsters.splice(monsterHitIndex, 1); //從怪物陣列中移除
+                gameState.monsters.splice(monsterHitIndex, 1);
                 clearInterval(dart.intervalId);
-                dart.element.remove(); // 移除飛鏢元素
+                dart.element.remove();
                 gameState.activeDarts = gameState.activeDarts.filter(d => d.id !== dart.id);
                 showNotification("怪物被飛鏢消滅了！");
                 return;
@@ -896,7 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 更新找到的字樣 UI ---
     function updateFoundCharsDisplay() {
         charSpans.forEach((span, index) => {
-            span.textContent = gameState.foundChars[index] || '_'; // 顯示已找到的字，或底線
+            span.textContent = gameState.foundChars[index] || '_';
         });
     }
 
@@ -907,7 +814,6 @@ document.addEventListener('DOMContentLoaded', () => {
         confettiCtx = confettiCanvas.getContext('2d');
         resizeConfettiCanvas();
         window.addEventListener('resize', resizeConfettiCanvas);
-        // Ensure drawConfetti loop is running
         if (!confettiAnimationId) {
             drawConfetti();
         }
@@ -921,22 +827,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function createConfettiParticle(spawnX, spawnY, initialSide) {
-        const radius = Math.random() * 5 + 2; // 彩帶大小
-        const colors = ['#f1c40f', '#e67e22', '#e74c3c', '#2ecc71', '#3498db', '#9b59b6']; // 鮮豔的顏色
+        const radius = Math.random() * 5 + 2;
+        const colors = ['#f1c40f', '#e67e22', '#e74c3c', '#2ecc71', '#3498db', '#9b59b6'];
         const color = colors[Math.floor(Math.random() * colors.length)];
         
-        // 初始速度：水平向外噴射，垂直向上微噴
-        const initialHorizontalBurstSpeed = Math.random() * 12 + 8; // 較大的水平噴射力道
-        const initialVerticalBurstSpeed = Math.random() * -10 - 5; // 負值使其向上噴射
+        const initialHorizontalBurstSpeed = Math.random() * 12 + 8;
+        const initialVerticalBurstSpeed = Math.random() * -10 - 5;
         
         const velocityX = initialHorizontalBurstSpeed * (initialSide === 'left' ? 1 : -1);
         const velocityY = initialVerticalBurstSpeed;
         
-        const gravity = 0.08; // 較小的重力值，使其緩慢下落 (已調整)
-        const dampingFactor = 0.96; // 阻尼係數，讓速度逐漸減小
+        const gravity = 0.08;
+        const dampingFactor = 0.96;
 
         const rotation = Math.random() * Math.PI * 2;
-        const rotationSpeed = Math.random() * 0.1 - 0.05; // 輕微旋轉
+        const rotationSpeed = Math.random() * 0.1 - 0.05;
         const opacity = 1;
 
         return { x: spawnX, y: spawnY, radius, color, 
@@ -945,24 +850,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawConfetti() {
-        if (!confettiCtx) return; // Add a check here
+        if (!confettiCtx) return;
         confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
 
-        // 更新和繪製粒子
         for (let i = confettiParticles.length - 1; i >= 0; i--) {
             const p = confettiParticles[i];
 
-            // 應用阻尼，使速度減慢
             p.velocityX *= p.dampingFactor;
             p.velocityY *= p.dampingFactor;
 
             p.x += p.velocityX;
             p.y += p.velocityY;
-            p.velocityY += p.gravity; // 應用重力，使其下落
+            p.velocityY += p.gravity;
             p.rotation += p.rotationSpeed;
-            p.opacity -= 0.005; // 逐漸淡出
+            p.opacity -= 0.005;
 
-            // 移除超出螢幕或已淡出的粒子
             if (p.y > confettiCanvas.height + p.radius || p.x < -p.radius || p.x > confettiCanvas.width + p.radius || p.opacity <= 0) {
                 confettiParticles.splice(i, 1); 
             } else {
@@ -971,7 +873,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 confettiCtx.rotate(p.rotation);
                 confettiCtx.globalAlpha = p.opacity;
                 confettiCtx.fillStyle = p.color;
-                // 繪製正方形彩帶
                 confettiCtx.fillRect(-p.radius, -p.radius, p.radius * 2, p.radius * 2); 
                 confettiCtx.restore();
             }
@@ -979,26 +880,23 @@ document.addEventListener('DOMContentLoaded', () => {
         confettiAnimationId = requestAnimationFrame(drawConfetti);
     }
 
-    function triggerNextConfettiBurstSequence() { // Renamed from startConfettiEffect
-        stopConfettiBursts(); // Ensure current sequence is stopped
-        confettiParticles = []; // Clear particles for a fresh start
-        currentBurstIndexInRound = 0; // Reset burst index
+    function triggerNextConfettiBurstSequence() {
+        stopConfettiBursts();
+        confettiParticles = [];
+        currentBurstIndexInRound = 0;
 
-        // Immediately start the first burst in sequence
         performSingleConfettiBurst();
     }
 
     function performSingleConfettiBurst() {
-        if (!confettiCanvas) return; // Add safety check
+        if (!confettiCanvas) return;
 
         const emitterIndex = burstOrderIndices[currentBurstIndexInRound];
         const currentY = confettiCanvas.height * emitterYPositions[emitterIndex];
 
-        // From left side
         for (let i = 0; i < 15; i++) {
             confettiParticles.push(createConfettiParticle(0, currentY, 'left'));
         }
-        // From right side
         for (let i = 0; i < 15; i++) {
             confettiParticles.push(createConfettiParticle(confettiCanvas.width, currentY, 'right'));
         }
@@ -1006,12 +904,10 @@ document.addEventListener('DOMContentLoaded', () => {
         currentBurstIndexInRound++;
 
         if (currentBurstIndexInRound < burstOrderIndices.length) {
-            // More bursts in this round, delay a bit for the next pair
             burstSequenceTimerId = setTimeout(performSingleConfettiBurst, burstBetweenPairsDelayMs);
         } else {
-            // All pairs in this round have burst, reset for next round and apply long delay
-            currentBurstIndexInRound = 0; // Reset for the next full sequence
-            burstSequenceTimerId = setTimeout(performSingleConfettiBurst, delayBetweenRoundsMs); // 2 second delay for next round
+            currentBurstIndexInRound = 0;
+            burstSequenceTimerId = setTimeout(performSingleConfettiBurst, delayBetweenRoundsMs);
         }
     }
 
@@ -1021,13 +917,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelAnimationFrame(confettiAnimationId);
             confettiAnimationId = null;
         }
-        stopConfettiBursts(); // Stop the timed bursts
-        confettiParticles = []; // Clear particle array
-        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height); // Clear canvas
+        stopConfettiBursts();
+        confettiParticles = [];
+        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
         window.removeEventListener('resize', resizeConfettiCanvas);
     }
 
-    function stopConfettiBursts() { // New function to stop only the timed particle bursts
+    function stopConfettiBursts() {
         if (burstSequenceTimerId) {
             clearTimeout(burstSequenceTimerId);
             burstSequenceTimerId = null;
@@ -1043,27 +939,22 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll(".grid-cell.visible").forEach(el=>el.classList.remove("visible"));
         visibleCells.forEach(key=>{const cell=document.getElementById(`cell-${key.replace(',','-')}`);if(cell)cell.classList.add("visible")});
         gameState.monsters.forEach(m=>{document.getElementById(`monster-${m.id}`)?.classList.toggle("visible",visibleCells.has(`${m.pos.x},${m.pos.y}`))});
-        // 更新多個寶藏的顯示
-        gameState.treasures.forEach(t => {
+        for (const t of gameState.treasures) {
             const treasureEl = document.getElementById(t.id);
             if (treasureEl) {
-                // 只有未找到的寶藏才受 FOV 控制，已找到的寶藏會保持其 'found-item' 樣式和半透明狀態
                 if (!t.found) {
                     treasureEl.classList.toggle("visible", visibleCells.has(`${t.pos.x},${t.pos.y}`));
                 } else {
-                    // 已找到的寶藏，只要在地圖上，就保持可見 (半透明)，不被 FOV 隱藏
                     treasureEl.classList.add("visible");
                 }
             }
-        });
-        // 更新飛行中的飛鏢顯示
-        gameState.activeDarts.forEach(d => {
+        }
+        for (const d of gameState.activeDarts) {
             const dartEl = document.getElementById(d.id);
             if (dartEl) {
-                // 飛鏢不受 FOV 影響，一旦發射就始終可見
                 dartEl.classList.add("visible"); 
             }
-        });
+        }
     }
     function canMove(pos,dir){let newPos={...pos};if(dir==="up")newPos.y--;else if(dir==="down")newPos.y++;else if(dir==="left")newPos.x--;else if(dir==="right")newPos.x++;return gameState.mazeData[newPos.y]?.[newPos.x]&&gameState.mazeData[newPos.y][newPos.x]!=="W"}
     function getDistance(p1,p2){return Math.sqrt(Math.pow(p1.x-p2.x,2)+Math.pow(p1.y-p2.y,2))}
@@ -1081,42 +972,36 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleKeyDown(e){ 
         if (gameSession.isPaused) return; 
 
-        // Handle Action Keys (independent of movement)
         if (e.code === 'Space' || e.key === ' ') { 
             e.preventDefault(); 
             placeBomb(); 
-            return; // Stop processing this event as it was for an action
+            return;
         }
         if (e.key === 'f' || e.key === 'F' || e.key === '離') { 
             e.preventDefault();
             shootDart();
-            return; // Stop processing this event as it was for an action
+            return;
         }
 
-        // Handle Movement Keys
         const direction = MOVE_KEY_MAP[e.key];
         if (direction) {
-            // Add the direction to the set of currently active keyboard movement keys
             playerMovement.activeKeyboardDirections.add(direction);
-            e.preventDefault(); // Prevent default browser actions (like scrolling)
+            e.preventDefault();
         }
     }
 
     function handleKeyUp(e){ 
         if (gameSession.isPaused) return; 
 
-        // For movement keys, remove from active set
         const direction = MOVE_KEY_MAP[e.key];
         if (direction) {
             playerMovement.activeKeyboardDirections.delete(direction);
         }
-        // Action keys don't affect movement state, so no need to handle keyup for them here
     }
 
-    // Joystick Input Handling (for movement only, independent of action buttons)
+    // Joystick Input Handling
     let isJoystickDragging=!1,joystickOrigin={x:0,y:0},maxJoystickRadius=0;
     function joystickTouchStart(e){
-        // Only prevent default on the joystick handle itself or the base if touch initiates drag
         if (e.target === joystickHandle || e.target === joystickContainer) {
             e.preventDefault(); 
         }
@@ -1124,16 +1009,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const r=joystickContainer.getBoundingClientRect();
         joystickOrigin={x:r.left+r.width/2,y:r.top+r.height/2};
         maxJoystickRadius=joystickContainer.offsetWidth/2-joystickHandle.offsetWidth/2;
-        joystickTouchMove(e); // Process initial touch as a move
+        joystickTouchMove(e);
     }
     function joystickTouchMove(e){
         if(!isJoystickDragging)return;
-        // Only prevent default on the joystick handle or base during drag
         if (e.target === joystickHandle || e.target === joystickContainer) {
             e.preventDefault(); 
-        } else {
-             // If touch moves outside joystick area, but still dragging, allow default
-             // This can happen if user drags off the joystick, but we still want to process movement until lift
         }
         
         const t=e.touches[0];
@@ -1142,58 +1023,50 @@ document.addEventListener('DOMContentLoaded', () => {
         if(dist>maxJoystickRadius){dx=dx/dist*maxJoystickRadius;dy=dy/dist*maxJoystickRadius}
         joystickHandle.style.transform=`translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
         
-        // Determine joystick direction and set it directly
         let d = null;
-        if(dist < 20) { // Joystick near center, no movement
+        if(dist < 20) {
             d = null;
-        } else if(Math.abs(dx) > Math.abs(dy)){ // Horizontal movement
+        } else if(Math.abs(dx) > Math.abs(dy)){
             d = dx > 0 ? "right" : "left";
-        } else { // Vertical movement
+        } else {
             d = dy > 0 ? "down" : "up";
         }
-        playerMovement.joystickDirection = d; // Joystick directly controls this direction
+        playerMovement.joystickDirection = d;
     }
     function joystickTouchEnd(e){
         if(!isJoystickDragging)return;
-        // Prevent default only if touch ended on joystick area itself, to avoid triggering click on button
         if (e.target === joystickHandle || e.target === joystickContainer) {
              e.preventDefault();
         }
         isJoystickDragging=!1;
         joystickHandle.style.transform="translate(-50%, -50%)";
-        playerMovement.joystickDirection = null; // Stop movement when joystick released
+        playerMovement.joystickDirection = null;
     }
     
     // Control UI elements visibility and attach/detach event listeners
-    // Named functions for button touchstart to allow proper removal
     const handlePlaceBombTouch = (e) => { e.preventDefault(); placeBomb(); };
     const handleShootDartTouch = (e) => { e.preventDefault(); shootDart(); };
 
     function setupGameUIForDevice() {
         if (isTouchDevice) {
             joystickContainer.style.display = 'block';
-            // Attach joystick listeners for touch devices
             joystickContainer.addEventListener("touchstart", joystickTouchStart, { passive: false }); 
-            // Note: touchmove/touchend are on document because user might drag off joystick
             document.addEventListener("touchmove", joystickTouchMove, { passive: false }); 
             document.addEventListener("touchend", joystickTouchEnd, { passive: false }); 
             document.addEventListener("touchcancel", joystickTouchEnd, { passive: false }); 
 
-            // Attach touchstart listeners for action buttons
             placeBombBtn.addEventListener("touchstart", handlePlaceBombTouch, { passive: false });
             shootDartBtn.addEventListener("touchstart", handleShootDartTouch, { passive: false });
-            // Ensure buttons are visible for touch devices
             placeBombBtn.style.display = 'flex'; 
             shootDartBtn.style.display = 'flex';
-        } else { // Desktop
-            joystickContainer.style.display = 'none'; // No joystick on desktop
-            placeBombBtn.style.display = 'flex'; // Buttons visible (for mouse click / visual cue for keyboard)
+        } else {
+            joystickContainer.style.display = 'none';
+            placeBombBtn.style.display = 'flex'; 
             shootDartBtn.style.display = 'flex';
-            // Desktop buttons use click listeners already set up at bottom of DOMContentLoaded, no touchstart needed here
         }
     }
 
-    function removeGameUIListeners() { // Renamed to clearly state it removes LISTENERS
+    function removeGameUIListeners() {
         joystickContainer.removeEventListener("touchstart", joystickTouchStart); 
         document.removeEventListener("touchmove", joystickTouchMove); 
         document.removeEventListener("touchend", joystickTouchEnd); 
@@ -1203,7 +1076,7 @@ document.addEventListener('DOMContentLoaded', () => {
         shootDartBtn.removeEventListener("touchstart", handleShootDartTouch);
     }
 
-    function removeGameUIElementsDisplay() { // To hide the actual UI elements
+    function removeGameUIElementsDisplay() {
         joystickContainer.style.display = 'none';
         placeBombBtn.style.display = 'none';
         shootDartBtn.style.display = 'none';
@@ -1215,9 +1088,8 @@ document.addEventListener('DOMContentLoaded', () => {
         playerMovement.moveInterval = null; 
         document.removeEventListener("keydown", handleKeyDown); 
         document.removeEventListener("keyup", handleKeyUp); 
-        removeGameUIListeners(); // Call the specific listener removal function
-        removeGameUIElementsDisplay(); // Call the UI hiding function
-        // Clear all flying darts intervals and remove their elements
+        removeGameUIListeners();
+        removeGameUIElementsDisplay();
         gameState.activeDarts.forEach(dart => {
             clearInterval(dart.intervalId);
             if (dart.element) dart.element.remove();
@@ -1227,45 +1099,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 事件監聽器與初始化 ---
     document.getElementById('start-game-btn').addEventListener('click', () => {
-        setupGameUIForDevice(); // Show/setup UI elements based on device
-        startGame(true); // Start a new game, resetting persistent progress
+        setupGameUIForDevice();
+        startGame(true);
     });
     document.getElementById('retry-btn').addEventListener('click', () => { 
-        setupGameUIForDevice(); // Show/setup UI elements based on device
-        clearGameListeners(); // Clear previous game state and listeners
-        startGame(false); // Retry current game, preserving persistent progress
+        setupGameUIForDevice();
+        clearGameListeners();
+        startGame(false);
     });
     document.getElementById('back-to-menu-btn').addEventListener('click', () => { 
-        removeGameUIListeners(); // Remove UI listeners
-        removeGameUIElementsDisplay(); // Hide UI elements
-        clearGameListeners(); // Additional cleanup
+        removeGameUIListeners();
+        removeGameUIElementsDisplay();
+        clearGameListeners();
         showScreen('start'); 
     });
-    // This button (exit-game-btn) was removed, so this listener is effectively gone now.
-    // document.getElementById('exit-game-btn').addEventListener('click', () => { 
-    //     removeGameUIListeners(); 
-    //     removeGameUIElementsDisplay(); 
-    //     clearGameListeners(); 
-    //     showScreen('start'); 
-    // });
+    
     document.getElementById('back-to-menu-from-win-btn').addEventListener('click', () => { 
-        removeGameUIListeners(); // Remove UI listeners
-        removeGameUIElementsDisplay(); // Hide UI elements
-        clearGameListeners(); // Additional cleanup
-        stopConfetti(); // Stop confetti animation
+        removeGameUIListeners();
+        removeGameUIElementsDisplay();
+        clearGameListeners();
+        stopConfetti();
         showScreen('start'); 
     });
 
-    // These click listeners are for desktop (or as fallback for touch, though touchstart is preferred)
-    // They are attached once DOMContentLoaded, and are always active if buttons are displayed.
     placeBombBtn.addEventListener('click', placeBomb);
     shootDartBtn.addEventListener('click', shootDart);
-
     notificationCloseBtn.addEventListener('click', hideNotification);
 
     isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     
-    // Initial display: only start screen, no game UI
     showScreen('start');
 });
 </script>
