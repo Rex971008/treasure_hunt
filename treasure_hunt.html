@@ -25,11 +25,30 @@
         .button:hover:not(:disabled) { background-color: var(--button-hover-bg); transform: translateY(-2px); }
         .button:active:not(:disabled) { transform: translateY(1px); }
         #game-container { width: 100vw; height: 100vh; border: none; background-color: var(--dark-color); position: relative; overflow: hidden; }
-        #in-game-ui { position: absolute; top: 15px; right: 15px; z-index: 20; display: flex; align-items: center; gap: 15px; }
-        #bomb-counter, #dart-counter { background-color: rgba(0,0,0,0.5); padding: 8px 15px; border-radius: 8px; font-size: 1.5em; display: flex; align-items: center; gap: 8px; }
+        
+        /* 全新的頂部 UI 容器 */
+        #top-ui-bar {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px; /* 延伸到整個寬度 */
+            display: flex;
+            justify-content: space-between; /* 左右兩端對齊 */
+            align-items: center;
+            gap: 15px; /* 內部元素間距 */
+            z-index: 20; /* 確保在最上層 */
+            pointer-events: none; /* 預設不阻擋下方點擊 */
+        }
+        #top-ui-bar > div, #top-ui-bar > button { /* 讓 UI 元素可以被點擊/互動 */
+            pointer-events: auto;
+        }
+
+        #bomb-counter, #dart-counter { 
+            background-color: rgba(0,0,0,0.5); padding: 8px 15px; border-radius: 8px; font-size: 1.5em; display: flex; align-items: center; gap: 8px; 
+        }
         #bomb-count-text, #dart-count-text { font-weight: bold; }
 
-        /* 顯示找到的字樣 */
+        /* 顯示找到的字樣 (現在在 #top-ui-bar 內，不再是絕對定位) */
         #found-chars-display {
             background-color: rgba(0,0,0,0.5);
             padding: 8px 15px;
@@ -38,11 +57,10 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            position: absolute; /* Changed to absolute for consistent positioning */
-            top: 15px;
-            left: 15px;
             color: var(--treasure-color);
             font-weight: bold;
+            /* 這些屬性會被 flexbox 父元素管理 */
+            /* position: absolute; top: 15px; left: 15px; */ 
         }
         #found-chars-display span {
             min-width: 1em; /* 確保字符有足夠的空間 */
@@ -196,17 +214,19 @@
         <div id="game-container">
             <div id="maze"></div>
             <div id="player"></div>
-            <!-- 寶藏元素將由 JS 動態創建，不再有單一的 #treasure -->
-            <div id="in-game-ui">
-                <div id="bomb-counter">💣<span id="bomb-count-text">10</span></div>
-                <!-- 新增：顯示找到的字樣 -->
+            <!-- 全新的頂部 UI 容器，整合了所有計數器和文字顯示 -->
+            <div id="top-ui-bar">
                 <div id="found-chars-display">
                     <span id="char-0">_</span><span id="char-1">_</span><span id="char-2">_</span>
                 </div>
-                <!-- 新增：飛鏢數量顯示 -->
-                <div id="dart-counter">🪃<span id="dart-count-text">5</span></div>
-                <button id="exit-game-btn" class="button danger">放棄挑戰</button>
+                <!-- 將炸彈和飛鏢計數器包裝在一個 div 中，以便在 flex 容器中統一右對齊 -->
+                <div style="display: flex; gap: 15px;">
+                    <div id="bomb-counter">💣<span id="bomb-count-text">10</span></div>
+                    <div id="dart-counter">🪃<span id="dart-count-text">5</span></div>
+                </div>
+                <!-- 原有的 '放棄挑戰' 按鈕已移除 -->
             </div>
+
             <div id="joystick-container"><div id="joystick-base"><div id="joystick-handle"></div></div></div>
             <button id="place-bomb-btn" class="button">💣</button>
             <button id="shoot-dart-btn" class="button">🪃</button> <!-- 新增飛鏢按鈕 -->
@@ -242,12 +262,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 變數宣告區 ---
     const screens = { start: document.getElementById('start-screen'), game: document.getElementById('game-screen'), win: document.getElementById('win-screen'), gameOver: document.getElementById('game-over-screen') };
     const mazeEl = document.getElementById("maze"), playerEl = document.getElementById("player"), gameContainer = document.getElementById("game-container"), joystickContainer = document.getElementById("joystick-container"), joystickHandle = document.getElementById("joystick-handle");
-    const bombCountText = document.getElementById("bomb-count-text"), placeBombBtn = document.getElementById("place-bomb-btn");
-    const dartCountText = document.getElementById("dart-count-text"), shootDartBtn = document.getElementById("shoot-dart-btn"); // 新增飛鏢 UI
+    const bombCountTextSpan = document.getElementById("bomb-count-text"), placeBombBtn = document.getElementById("place-bomb-btn"); // Changed to access span directly
+    const dartCountTextSpan = document.getElementById("dart-count-text"), shootDartBtn = document.getElementById("shoot-dart-btn"); // Changed to access span directly
     const notificationOverlay = document.getElementById("notification-overlay"), notificationText = document.getElementById("notification-text"), notificationCloseBtn = document.getElementById("notification-close-btn");
     const gameOverVideo = document.getElementById("game-over-video"); // 遊戲結束影片元素
     
-    // 找到的字樣 UI 元素
+    // 找到的字樣 UI 元素 (現在在 #top-ui-bar 內)
     const foundCharsDisplay = document.getElementById("found-chars-display");
     const charSpans = [
         document.getElementById("char-0"),
@@ -274,20 +294,43 @@ document.addEventListener('DOMContentLoaded', () => {
         playerLastDirection: 'right', // 記錄玩家最後一次移動的方向，用於發射飛鏢
     };
     let gameSession = { currentMoveSpeed: 120, isPaused: false };
-    let playerMovement = { currentDirection: null, queuedDirection: null, moveInterval: null, lastPos: { x: -1, y: -1 } };
+    
+    // --- 重構後的玩家移動狀態 ---
+    let playerMovement = {
+        activeKeyboardDirections: new Set(), // 儲存所有目前按下的移動鍵 (例如 'up', 'left')
+        joystickDirection: null,             // 儲存搖桿當前提供的方向
+        currentExecutingDirection: null,     // 玩家實際正在執行並移動的方向
+        nextDesiredDirection: null,          // 玩家期望的下一個方向 (用於平滑切換)
+        moveInterval: null,
+        lastPos: { x: -1, y: -1 }
+    };
     
     const levelConfig = { w: 15, h: 10, m: 5, initialBombs: 10, initialDarts: 5 }; // 新增初始飛鏢數量
     const FOV_RADIUS = 10;
     // 怪物速度減慢 (值越大越慢)
     const MONSTER_TIERS = [ 
-        {level:1,colorFilter:"hue-rotate(0deg) saturate(0.8)",speed:1200}, // 更慢
-        {level:2,colorFilter:"hue-rotate(90deg) saturate(1.2)",speed:900}, 
-        {level:3,colorFilter:"hue-rotate(200deg) saturate(1.5)",speed:600} 
+        {level:1,colorFilter:"hue-rotate(0deg) saturate(0.8)",speed:1500}, // 更慢
+        {level:2,colorFilter:"hue-rotate(90deg) saturate(1.2)",speed:1200}, 
+        {level:3,colorFilter:"hue-rotate(200deg) saturate(1.5)",speed:900} 
     ];
     let isTouchDevice = false;
 
     // 彩帶特效相關變數
     let confettiCanvas, confettiCtx, confettiParticles = [], confettiAnimationId;
+    let burstSequenceTimerId; // 用於控制序列化噴發的定時器 ID
+
+    // 定義六個發射點的 Y 軸比例 (從上到下: 5&6, 3&4, 1&2 的視覺位置)
+    // 數字越小越靠近頂部，數字越大越靠近底部
+    const emitterYPositions = [0.2, 0.5, 0.8]; 
+
+    // 定義噴發的順序，從下往上 (1&2 -> 3&4 -> 5&6)
+    // 對應 emitterYPositions 的索引: 2 (底部), 1 (中間), 0 (頂部)
+    const burstOrderIndices = [2, 1, 0]; 
+    let currentBurstIndexInRound = 0; // 當前在這一輪中的噴發索引 (0, 1, 2)
+
+    const burstBetweenPairsDelayMs = 200; // 同一輪中，每對發射點之間的延遲 (例如 1&2 噴發後，200ms 再 3&4)
+    const delayBetweenRoundsMs = 2000;   // 每輪噴發完成後，與下一輪開始的延遲 (2秒)
+
 
     // --- 核心功能 ---
     function showScreen(screenName) { 
@@ -309,24 +352,43 @@ document.addEventListener('DOMContentLoaded', () => {
     function mainGameLoop() {
         if (gameSession.isPaused) return;
 
-        // 玩家移動邏輯
-        if (playerMovement.queuedDirection && canMove(gameState.playerPos, playerMovement.queuedDirection)) { playerMovement.currentDirection = playerMovement.queuedDirection; playerMovement.queuedDirection = null; }
-        if (canMove(gameState.playerPos, playerMovement.currentDirection)) {
+        // 1. 根據輸入更新玩家的移動意圖
+        updatePlayerMovementIntents();
+
+        let finalMoveDirection = null;
+
+        // --- 平滑移動邏輯 ---
+        // Step 1: Check if the 'next desired' direction is immediately executable
+        if (playerMovement.nextDesiredDirection && canMove(gameState.playerPos, playerMovement.nextDesiredDirection)) {
+            finalMoveDirection = playerMovement.nextDesiredDirection;
+            playerMovement.currentExecutingDirection = finalMoveDirection; // Adopt the new direction
+            playerMovement.nextDesiredDirection = null; // Clear the queued direction
+        }
+        // Step 2: If not, try to continue with the 'current executing' direction
+        else if (playerMovement.currentExecutingDirection && canMove(gameState.playerPos, playerMovement.currentExecutingDirection)) {
+            finalMoveDirection = playerMovement.currentExecutingDirection;
+            // No change to currentExecutingDirection, it continues
+            // nextDesiredDirection (if any) remains queued if it couldn't be executed
+        } else {
+            // No valid direction to move in (either blocked or no input)
+            playerMovement.currentExecutingDirection = null; // Stop execution
+            playerMovement.nextDesiredDirection = null; // Clear any queued
+        }
+        // --- End Smooth Movement Logic ---
+
+        if (finalMoveDirection) {
             let newPos = { ...gameState.playerPos };
-            const move = playerMovement.currentDirection;
-            if (move === 'up') newPos.y--; else if (move === 'down') newPos.y++; else if (move === 'left') newPos.x--; else if (move === 'right') newPos.x++;
+            if (finalMoveDirection === 'up') newPos.y--; else if (finalMoveDirection === 'down') newPos.y++; else if (finalMoveDirection === 'left') newPos.x--; else if (finalMoveDirection === 'right') newPos.x++;
             gameState.playerPos = newPos;
             centerViewOnPlayer(true);
-        } else { playerMovement.currentDirection = null; }
+            gameState.playerLastDirection = finalMoveDirection; // 記錄實際成功移動的方向
+        }
         
-        // 視野更新及上次移動方向記錄
+        // 視野更新及上次移動方向記錄 (只有當玩家位置改變時才更新)
         if (playerMovement.lastPos.x !== gameState.playerPos.x || playerMovement.lastPos.y !== gameState.playerPos.y) {
             computeFov();
             updateFovDisplay();
             playerMovement.lastPos = {...gameState.playerPos};
-            if (playerMovement.currentDirection) { // 更新玩家最後一次移動的方向
-                gameState.playerLastDirection = playerMovement.currentDirection;
-            }
         }
         
         const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
@@ -348,6 +410,42 @@ document.addEventListener('DOMContentLoaded', () => {
         
         checkBombCollisions();
         checkPlayerPosition(); // 這會檢查寶藏和怪物碰撞
+    }
+
+    // --- 新增：根據所有輸入更新玩家移動意圖的狀態機 ---
+    function updatePlayerMovementIntents() {
+        let highestPriorityInputDirection = null;
+        const priorityOrder = ['up', 'down', 'left', 'right']; // 鍵盤方向的優先順序
+
+        // 優先考慮搖桿輸入
+        if (playerMovement.joystickDirection) {
+            highestPriorityInputDirection = playerMovement.joystickDirection;
+        } else {
+            // 處理鍵盤輸入，根據優先順序選擇一個方向
+            for (const dir of priorityOrder) {
+                if (playerMovement.activeKeyboardDirections.has(dir)) {
+                    highestPriorityInputDirection = dir;
+                    break;
+                }
+            }
+        }
+
+        // --- 更新 playerMovement 狀態變數 ---
+        if (highestPriorityInputDirection === null) {
+            // 如果沒有任何移動輸入，則不再有新的「期望方向」
+            playerMovement.nextDesiredDirection = null;
+            // currentExecutingDirection 將在 mainGameLoop 中判斷是否繼續或停止
+        } else if (playerMovement.currentExecutingDirection === null) {
+            // 如果目前沒有在移動，則將最高優先級的輸入方向設為當前執行方向
+            playerMovement.currentExecutingDirection = highestPriorityInputDirection;
+            playerMovement.nextDesiredDirection = null;
+        } else if (highestPriorityInputDirection !== playerMovement.currentExecutingDirection) {
+            // 如果最高優先級的輸入方向與當前執行方向不同，則將其設為下一個期望方向（用於轉彎緩衝）
+            playerMovement.nextDesiredDirection = highestPriorityInputDirection;
+        } else {
+            // 如果新的期望方向與當前方向相同，且沒有等待的 nextDesiredDirection，則清空 nextDesiredDirection
+            playerMovement.nextDesiredDirection = null;
+        }
     }
     
     function pauseGame() { gameSession.isPaused = true; }
@@ -440,19 +538,28 @@ document.addEventListener('DOMContentLoaded', () => {
         clearGameListeners(); 
         showScreen("win"); 
         initConfetti(); // 初始化彩帶canvas
-        drawConfetti(); // 開始彩帶動畫
+        triggerNextConfettiBurstSequence(); // 開始彩帶動畫
     }
     function gameOver() { clearGameListeners(); showScreen("gameOver"); }
 
     function startGame(resetPersistent = true) { // 增加一個參數，控制是否重置持久化狀態
-        clearGameListeners();
+        clearGameListeners(); // 清除之前的監聽器和遊戲狀態，包括所有活動的飛鏢
+        
         gameState.bombsRemaining = levelConfig.initialBombs;
         gameState.placedBombs = [];
         gameState.dartsRemaining = levelConfig.initialDarts; // 初始化飛鏢數量
         gameState.activeDarts = []; // 清空飛行中的飛鏢
         gameState.foundTreasuresCount = 0; // 重置當前遊戲回合的寶藏計數
         gameState.foundChars = ['', '', '']; // 重置當前遊戲回合的字樣顯示
-        gameState.playerLastDirection = 'right'; // 重置玩家最後方向
+        gameState.playerLastDirection = 'right'; // 重置玩家最後方向（預設值）
+
+        // 重置移動狀態
+        playerMovement.activeKeyboardDirections.clear();
+        playerMovement.joystickDirection = null;
+        playerMovement.currentExecutingDirection = null;
+        playerMovement.nextDesiredDirection = null;
+        playerMovement.lastPos = { x: -1, y: -1 };
+
 
         if (resetPersistent) { // 只有當從開始畫面點擊時才重置持久化狀態
             foundCharactersPersistent.fill(false);
@@ -462,8 +569,6 @@ document.addEventListener('DOMContentLoaded', () => {
         TREASURE_CHARS.forEach((char, index) => {
             if (foundCharactersPersistent[index]) {
                 gameState.foundChars[index] = char;
-                // 注意這裡不應該增加 foundTreasuresCount，因為它只計算當前回合找到的。
-                // 總通關進度由 foundCharactersPersistent 決定。
             }
         });
         // 重新計算 foundTreasuresCount 以確保正確反映持久化狀態中已找到的字
@@ -475,7 +580,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateFoundCharsDisplay(); // 根據初始化後的 gameState.foundChars 更新 UI
         
         gameSession = { currentMoveSpeed: 120, isPaused: false };
-        playerMovement = { currentDirection: null, queuedDirection: null, moveInterval: null, lastPos: {x:-1, y:-1} };
         const playerSeed = 'Yen-Lin-Birthday-Hero';
         playerEl.style.backgroundImage = `url(https://api.dicebear.com/8.x/adventurer/svg?seed=${playerSeed}&radius=50)`;
         
@@ -485,8 +589,10 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('game');
         centerViewOnPlayer(false);
         
-        document.addEventListener('keydown', handleKeyDown); document.addEventListener('keyup', handleKeyUp);
-        // 搖桿和按鈕的顯示邏輯在 startGame 和 retry 時都會執行
+        // 重新添加鍵盤監聽器
+        document.addEventListener('keydown', handleKeyDown); 
+        document.addEventListener('keyup', handleKeyUp);
+        // 設置 UI 監聽器 (包括搖桿和按鈕)
         setupGameUIForDevice(); 
         playerMovement.moveInterval = setInterval(mainGameLoop, gameSession.currentMoveSpeed);
 
@@ -595,7 +701,7 @@ document.addEventListener('DOMContentLoaded', () => {
         treasuresToPlaceInThisRound.sort(() => rng() - 0.5);
 
         // 2. 優先為當前回合未找到的寶藏分配位置
-        treasuresToPlaceInThisRound.forEach(t => {
+        for (const t of treasuresToPlaceInThisRound) {
             if (allDeadEnds.length > 0) {
                 const tPos = allDeadEnds.pop();
                 t.pos = tPos;
@@ -603,11 +709,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 gameState.treasures.push(t); // 將寶藏加入到遊戲狀態中
             } else {
                 console.warn(`WARN: Not enough dead ends to place new treasure: ${t.originalChar}. It will not appear this round.`);
+                // 沒有足夠的死路，寶藏將不會被放置
             }
-        });
+        }
 
         // 3. 為已找到的寶藏（佔位符）分配位置 (如果還有死路)
-        treasuresAlreadyFound.forEach(t => {
+        for (const t of treasuresAlreadyFound) {
             if (allDeadEnds.length > 0) {
                 const tPos = allDeadEnds.pop();
                 t.pos = tPos;
@@ -615,9 +722,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 gameState.treasures.push(t); // 將已找到的寶藏加入到遊戲狀態中
             } else {
                 console.warn(`WARN: Not enough dead ends for already found treasure: ${t.originalChar}. It will not appear on the map.`);
-                // 如果沒有足夠的死路來放置已找到的寶藏，它將不會顯示在地圖上
+                // 如果沒有足夠的死路，已找到的寶藏將不會被放置
             }
-        });
+        }
 
 
         // 4. 放置怪物，只使用剩餘的死路
@@ -671,7 +778,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mazeEl.appendChild(bombEl);
     }
     
-    function updateBombUI() { bombCountText.textContent = gameState.bombsRemaining; }
+    function updateBombUI() { bombCountTextSpan.textContent = gameState.bombsRemaining; } // Access span directly
 
     function triggerExplosion(x, y) {
         const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
@@ -711,7 +818,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 飛鏢功能 ---
-    function updateDartUI() { dartCountText.textContent = gameState.dartsRemaining; }
+    function updateDartUI() { dartCountTextSpan.textContent = gameState.dartsRemaining; } // Access span directly
 
     function shootDart() {
         if (gameSession.isPaused) return;
@@ -721,10 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // 捕捉玩家最後的移動方向，如果玩家還沒動，預設向右
         const dartDirection = gameState.playerLastDirection;
-        if (!dartDirection) {
-            showNotification("請先移動一下，確定飛鏢方向！");
-            return;
-        }
+        // 已移除靜止時無法發射的檢查，預設向右或使用最後方向
 
         gameState.dartsRemaining--;
         updateDartUI();
@@ -774,7 +878,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (monsterHitIndex !== -1) {
                 const monsterId = gameState.monsters[monsterHitIndex].id;
                 document.getElementById(`monster-${monsterId}`)?.remove();
-                gameState.monsters.splice(monsterHitIndex, 1); // 從怪物陣列中移除
+                gameState.monsters.splice(monsterHitIndex, 1); //從怪物陣列中移除
                 clearInterval(dart.intervalId);
                 dart.element.remove(); // 移除飛鏢元素
                 gameState.activeDarts = gameState.activeDarts.filter(d => d.id !== dart.id);
@@ -803,6 +907,10 @@ document.addEventListener('DOMContentLoaded', () => {
         confettiCtx = confettiCanvas.getContext('2d');
         resizeConfettiCanvas();
         window.addEventListener('resize', resizeConfettiCanvas);
+        // Ensure drawConfetti loop is running
+        if (!confettiAnimationId) {
+            drawConfetti();
+        }
     }
 
     function resizeConfettiCanvas() {
@@ -812,47 +920,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function createConfettiParticle() {
-        const side = Math.random() < 0.5 ? 'left' : 'right'; // 隨機從左或右側產生
-        const x = side === 'left' ? 0 : confettiCanvas.width;
-        const y = Math.random() * confettiCanvas.height; // 在整個高度範圍內隨機Y座標
-
-        const radius = Math.random() * 5 + 2;
+    function createConfettiParticle(spawnX, spawnY, initialSide) {
+        const radius = Math.random() * 5 + 2; // 彩帶大小
         const colors = ['#f1c40f', '#e67e22', '#e74c3c', '#2ecc71', '#3498db', '#9b59b6']; // 鮮豔的顏色
         const color = colors[Math.floor(Math.random() * colors.length)];
         
-        // 初始速度：水平向內噴出，垂直向上微噴，然後受重力下落
-        const initialHorizontalSpeed = Math.random() * 8 + 3; // 較大的水平噴射速度
-        const initialVerticalSpeed = Math.random() * -5 - 1; // 負值使其向上噴射
-        const velocityX = initialHorizontalSpeed * (side === 'left' ? 1 : -1);
-        const velocityY = initialVerticalSpeed;
+        // 初始速度：水平向外噴射，垂直向上微噴
+        const initialHorizontalBurstSpeed = Math.random() * 12 + 8; // 較大的水平噴射力道
+        const initialVerticalBurstSpeed = Math.random() * -10 - 5; // 負值使其向上噴射
         
-        const gravity = 0.08; // 較小的重力值，使其緩慢下落
+        const velocityX = initialHorizontalBurstSpeed * (initialSide === 'left' ? 1 : -1);
+        const velocityY = initialVerticalBurstSpeed;
+        
+        const gravity = 0.08; // 較小的重力值，使其緩慢下落 (已調整)
+        const dampingFactor = 0.96; // 阻尼係數，讓速度逐漸減小
+
         const rotation = Math.random() * Math.PI * 2;
         const rotationSpeed = Math.random() * 0.1 - 0.05; // 輕微旋轉
         const opacity = 1;
 
-        return { x, y, radius, color, velocityX, velocityY, gravity, rotation, rotationSpeed, opacity };
+        return { x: spawnX, y: spawnY, radius, color, 
+                 velocityX, velocityY, gravity, dampingFactor,
+                 rotation, rotationSpeed, opacity };
     }
 
     function drawConfetti() {
-        if (!confettiCtx) return;
+        if (!confettiCtx) return; // Add a check here
         confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-
-        // 每幀添加新的粒子
-        for (let i = 0; i < 4; i++) { // 增加粒子生成速度
-            if (confettiParticles.length < 300) { // 增加總粒子數限制
-                confettiParticles.push(createConfettiParticle());
-            }
-        }
 
         // 更新和繪製粒子
         for (let i = confettiParticles.length - 1; i >= 0; i--) {
             const p = confettiParticles[i];
 
+            // 應用阻尼，使速度減慢
+            p.velocityX *= p.dampingFactor;
+            p.velocityY *= p.dampingFactor;
+
             p.x += p.velocityX;
             p.y += p.velocityY;
-            p.velocityY += p.gravity; // 應用重力
+            p.velocityY += p.gravity; // 應用重力，使其下落
             p.rotation += p.rotationSpeed;
             p.opacity -= 0.005; // 逐漸淡出
 
@@ -873,14 +979,59 @@ document.addEventListener('DOMContentLoaded', () => {
         confettiAnimationId = requestAnimationFrame(drawConfetti);
     }
 
+    function triggerNextConfettiBurstSequence() { // Renamed from startConfettiEffect
+        stopConfettiBursts(); // Ensure current sequence is stopped
+        confettiParticles = []; // Clear particles for a fresh start
+        currentBurstIndexInRound = 0; // Reset burst index
+
+        // Immediately start the first burst in sequence
+        performSingleConfettiBurst();
+    }
+
+    function performSingleConfettiBurst() {
+        if (!confettiCanvas) return; // Add safety check
+
+        const emitterIndex = burstOrderIndices[currentBurstIndexInRound];
+        const currentY = confettiCanvas.height * emitterYPositions[emitterIndex];
+
+        // From left side
+        for (let i = 0; i < 15; i++) {
+            confettiParticles.push(createConfettiParticle(0, currentY, 'left'));
+        }
+        // From right side
+        for (let i = 0; i < 15; i++) {
+            confettiParticles.push(createConfettiParticle(confettiCanvas.width, currentY, 'right'));
+        }
+
+        currentBurstIndexInRound++;
+
+        if (currentBurstIndexInRound < burstOrderIndices.length) {
+            // More bursts in this round, delay a bit for the next pair
+            burstSequenceTimerId = setTimeout(performSingleConfettiBurst, burstBetweenPairsDelayMs);
+        } else {
+            // All pairs in this round have burst, reset for next round and apply long delay
+            currentBurstIndexInRound = 0; // Reset for the next full sequence
+            burstSequenceTimerId = setTimeout(performSingleConfettiBurst, delayBetweenRoundsMs); // 2 second delay for next round
+        }
+    }
+
+
     function stopConfetti() {
         if (confettiAnimationId) {
             cancelAnimationFrame(confettiAnimationId);
             confettiAnimationId = null;
         }
-        confettiParticles = []; // 清空粒子陣列
-        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height); // 清空canvas
+        stopConfettiBursts(); // Stop the timed bursts
+        confettiParticles = []; // Clear particle array
+        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height); // Clear canvas
         window.removeEventListener('resize', resizeConfettiCanvas);
+    }
+
+    function stopConfettiBursts() { // New function to stop only the timed particle bursts
+        if (burstSequenceTimerId) {
+            clearTimeout(burstSequenceTimerId);
+            burstSequenceTimerId = null;
+        }
     }
 
     // --- 輔助函數 ---
@@ -918,99 +1069,155 @@ document.addEventListener('DOMContentLoaded', () => {
     function getDistance(p1,p2){return Math.sqrt(Math.pow(p1.x-p2.x,2)+Math.pow(p1.y-p2.y,2))}
     function findPath(start,end){const q=[[start]],visited=new Set([`${start.x},${start.y}`]),dirs=["up","down","left","right"];while(q.length>0){const path=q.shift(),pos=path[path.length-1];if(pos.x===end.x&&pos.y===end.y)return path;for(const dir of dirs){let next={...pos};if(dir==="up")next.y--;else if(dir==="down")next.y++;else if(dir==="left")next.x--;else if(dir==="right")next.x++;const key=`${next.x},${next.y}`;if(!visited.has(key)&&canMove(pos,dir)){visited.add(key);q.push([...path,next])}}}return null}
     function isPlayerVisible(monsterPos,playerPos){if(getDistance(monsterPos,playerPos)>FOV_RADIUS)return!1;let x0=monsterPos.x,y0=monsterPos.y;const x1=playerPos.x,y1=playerPos.y;const dx=Math.abs(x1-x0),sx=x0<x1?1:-1;const dy=-Math.abs(y1-y0),sy=y0<y1?1:-1;let err=dx+dy,e2;while(!0){if(gameState.mazeData[y0]?.[x0]==="W")return!1;if(x0===x1&&y0===y1)break;e2=2*err;if(e2>=dy){err+=dy;x0+=sx}if(e2<=dx){err+=dx;y0+=sy}}return!0}
+    
+    // Keyboard Input Handling (for both movement and actions)
+    const MOVE_KEY_MAP = {
+        ArrowUp: "up", w: "up",
+        ArrowDown: "down", s: "down",
+        ArrowLeft: "left", a: "left",
+        ArrowRight: "right", d: "right"
+    };
+
     function handleKeyDown(e){ 
         if (gameSession.isPaused) return; 
+
+        // Handle Action Keys (independent of movement)
         if (e.code === 'Space' || e.key === ' ') { 
             e.preventDefault(); 
             placeBomb(); 
-            return; 
+            return; // Stop processing this event as it was for an action
         }
-        // 新增飛鏢快捷鍵 (F 鍵 或 注音離)
         if (e.key === 'f' || e.key === 'F' || e.key === '離') { 
             e.preventDefault();
             shootDart();
-            return;
+            return; // Stop processing this event as it was for an action
         }
-        const m={ArrowUp:"up",w:"up",ArrowDown:"down",s:"down",ArrowLeft:"left",a:"left",ArrowRight:"right",d:"right"},d=m[e.key]; 
-        if(!d)return; 
-        e.preventDefault(); 
-        playerMovement.queuedDirection=d; 
-        if(!playerMovement.currentDirection)playerMovement.currentDirection=d; 
+
+        // Handle Movement Keys
+        const direction = MOVE_KEY_MAP[e.key];
+        if (direction) {
+            // Add the direction to the set of currently active keyboard movement keys
+            playerMovement.activeKeyboardDirections.add(direction);
+            e.preventDefault(); // Prevent default browser actions (like scrolling)
+        }
     }
+
     function handleKeyUp(e){ 
         if (gameSession.isPaused) return; 
-        const m={ArrowUp:"up",w:"up",ArrowDown:"down",s:"down",ArrowLeft:"left",a:"left",ArrowRight:"right",d:"right"},d=m[e.key];
-        if(d===playerMovement.queuedDirection)playerMovement.queuedDirection=null
+
+        // For movement keys, remove from active set
+        const direction = MOVE_KEY_MAP[e.key];
+        if (direction) {
+            playerMovement.activeKeyboardDirections.delete(direction);
+        }
+        // Action keys don't affect movement state, so no need to handle keyup for them here
     }
+
+    // Joystick Input Handling (for movement only, independent of action buttons)
     let isJoystickDragging=!1,joystickOrigin={x:0,y:0},maxJoystickRadius=0;
     function joystickTouchStart(e){
-        e.preventDefault();
+        // Only prevent default on the joystick handle itself or the base if touch initiates drag
+        if (e.target === joystickHandle || e.target === joystickContainer) {
+            e.preventDefault(); 
+        }
         isJoystickDragging=!0;
         const r=joystickContainer.getBoundingClientRect();
         joystickOrigin={x:r.left+r.width/2,y:r.top+r.height/2};
         maxJoystickRadius=joystickContainer.offsetWidth/2-joystickHandle.offsetWidth/2;
-        joystickTouchMove(e)
+        joystickTouchMove(e); // Process initial touch as a move
     }
     function joystickTouchMove(e){
         if(!isJoystickDragging)return;
-        e.preventDefault();
+        // Only prevent default on the joystick handle or base during drag
+        if (e.target === joystickHandle || e.target === joystickContainer) {
+            e.preventDefault(); 
+        } else {
+             // If touch moves outside joystick area, but still dragging, allow default
+             // This can happen if user drags off the joystick, but we still want to process movement until lift
+        }
+        
         const t=e.touches[0];
         let dx=t.clientX-joystickOrigin.x,dy=t.clientY-joystickOrigin.y;
         const dist=Math.sqrt(dx*dx+dy*dy);
         if(dist>maxJoystickRadius){dx=dx/dist*maxJoystickRadius;dy=dy/dist*maxJoystickRadius}
         joystickHandle.style.transform=`translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
-        let d=null;
-        if(dist<20){playerMovement.currentDirection=null;playerMovement.queuedDirection=null;return}
-        if(Math.abs(dx)>Math.abs(dy)){d=dx>0?"right":"left"}else{d=dy>0?"down":"up"}
-        playerMovement.queuedDirection=d;
-        if(!playerMovement.currentDirection)playerMovement.currentDirection=d
+        
+        // Determine joystick direction and set it directly
+        let d = null;
+        if(dist < 20) { // Joystick near center, no movement
+            d = null;
+        } else if(Math.abs(dx) > Math.abs(dy)){ // Horizontal movement
+            d = dx > 0 ? "right" : "left";
+        } else { // Vertical movement
+            d = dy > 0 ? "down" : "up";
+        }
+        playerMovement.joystickDirection = d; // Joystick directly controls this direction
     }
     function joystickTouchEnd(e){
         if(!isJoystickDragging)return;
-        e.preventDefault();
+        // Prevent default only if touch ended on joystick area itself, to avoid triggering click on button
+        if (e.target === joystickHandle || e.target === joystickContainer) {
+             e.preventDefault();
+        }
         isJoystickDragging=!1;
         joystickHandle.style.transform="translate(-50%, -50%)";
-        playerMovement.currentDirection=null;
-        playerMovement.queuedDirection=null
+        playerMovement.joystickDirection = null; // Stop movement when joystick released
     }
     
-    // 控制搖桿和按鈕的顯示
+    // Control UI elements visibility and attach/detach event listeners
+    // Named functions for button touchstart to allow proper removal
+    const handlePlaceBombTouch = (e) => { e.preventDefault(); placeBomb(); };
+    const handleShootDartTouch = (e) => { e.preventDefault(); shootDart(); };
+
     function setupGameUIForDevice() {
         if (isTouchDevice) {
             joystickContainer.style.display = 'block';
-            placeBombBtn.style.display = 'flex';
+            // Attach joystick listeners for touch devices
+            joystickContainer.addEventListener("touchstart", joystickTouchStart, { passive: false }); 
+            // Note: touchmove/touchend are on document because user might drag off joystick
+            document.addEventListener("touchmove", joystickTouchMove, { passive: false }); 
+            document.addEventListener("touchend", joystickTouchEnd, { passive: false }); 
+            document.addEventListener("touchcancel", joystickTouchEnd, { passive: false }); 
+
+            // Attach touchstart listeners for action buttons
+            placeBombBtn.addEventListener("touchstart", handlePlaceBombTouch, { passive: false });
+            shootDartBtn.addEventListener("touchstart", handleShootDartTouch, { passive: false });
+            // Ensure buttons are visible for touch devices
+            placeBombBtn.style.display = 'flex'; 
             shootDartBtn.style.display = 'flex';
-            // 添加搖桿的觸摸事件監聽器
-            joystickContainer.addEventListener("touchstart",joystickTouchStart,{passive:!1}); 
-            document.addEventListener("touchmove",joystickTouchMove,{passive:!1}); 
-            document.addEventListener("touchend",joystickTouchEnd,{passive:!1}); 
-            document.addEventListener("touchcancel",joystickTouchEnd,{passive:!1}); 
         } else { // Desktop
-            joystickContainer.style.display = 'none'; // 桌面不顯示搖桿
-            placeBombBtn.style.display = 'flex'; // 桌面顯示按鈕 (供點擊，或使用鍵盤)
+            joystickContainer.style.display = 'none'; // No joystick on desktop
+            placeBombBtn.style.display = 'flex'; // Buttons visible (for mouse click / visual cue for keyboard)
             shootDartBtn.style.display = 'flex';
+            // Desktop buttons use click listeners already set up at bottom of DOMContentLoaded, no touchstart needed here
         }
     }
 
-    function removeGameUI() {
-        // 隱藏所有遊戲相關的 UI 元素
+    function removeGameUIListeners() { // Renamed to clearly state it removes LISTENERS
+        joystickContainer.removeEventListener("touchstart", joystickTouchStart); 
+        document.removeEventListener("touchmove", joystickTouchMove); 
+        document.removeEventListener("touchend", joystickTouchEnd); 
+        document.removeEventListener("touchcancel", joystickTouchEnd); 
+
+        placeBombBtn.removeEventListener("touchstart", handlePlaceBombTouch);
+        shootDartBtn.removeEventListener("touchstart", handleShootDartTouch);
+    }
+
+    function removeGameUIElementsDisplay() { // To hide the actual UI elements
         joystickContainer.style.display = 'none';
         placeBombBtn.style.display = 'none';
         shootDartBtn.style.display = 'none';
-        // 移除搖桿的觸摸事件監聽器，避免在非遊戲畫面時觸發
-        joystickContainer.removeEventListener("touchstart",joystickTouchStart); 
-        document.removeEventListener("touchmove",joystickTouchMove); 
-        document.removeEventListener("touchend",joystickTouchEnd); 
-        document.removeEventListener("touchcancel",joystickTouchEnd); 
     }
+
 
     function clearGameListeners() { 
         if(playerMovement.moveInterval) clearInterval(playerMovement.moveInterval); 
         playerMovement.moveInterval = null; 
         document.removeEventListener("keydown", handleKeyDown); 
         document.removeEventListener("keyup", handleKeyUp); 
-        removeGameUI(); // 確保移除 UI 相關事件
-        // 清除所有飛行中的飛鏢的 interval 並移除元素
+        removeGameUIListeners(); // Call the specific listener removal function
+        removeGameUIElementsDisplay(); // Call the UI hiding function
+        // Clear all flying darts intervals and remove their elements
         gameState.activeDarts.forEach(dart => {
             clearInterval(dart.intervalId);
             if (dart.element) dart.element.remove();
@@ -1020,37 +1227,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 事件監聽器與初始化 ---
     document.getElementById('start-game-btn').addEventListener('click', () => {
-        setupGameUIForDevice(); // 進入遊戲畫面時顯示相應 UI
-        startGame(true); // 開始遊戲，重置持久化狀態
+        setupGameUIForDevice(); // Show/setup UI elements based on device
+        startGame(true); // Start a new game, resetting persistent progress
     });
     document.getElementById('retry-btn').addEventListener('click', () => { 
-        setupGameUIForDevice(); // 進入遊戲畫面時顯示相應 UI
-        clearGameListeners(); 
-        startGame(false); // 重試，不重置持久化狀態
+        setupGameUIForDevice(); // Show/setup UI elements based on device
+        clearGameListeners(); // Clear previous game state and listeners
+        startGame(false); // Retry current game, preserving persistent progress
     });
     document.getElementById('back-to-menu-btn').addEventListener('click', () => { 
-        removeGameUI(); // 回到主選單時隱藏遊戲 UI
-        clearGameListeners(); 
+        removeGameUIListeners(); // Remove UI listeners
+        removeGameUIElementsDisplay(); // Hide UI elements
+        clearGameListeners(); // Additional cleanup
         showScreen('start'); 
     });
-    document.getElementById('exit-game-btn').addEventListener('click', () => { 
-        removeGameUI(); // 回到主選單時隱藏遊戲 UI
-        clearGameListeners(); 
-        showScreen('start'); 
-    });
+    // This button (exit-game-btn) was removed, so this listener is effectively gone now.
+    // document.getElementById('exit-game-btn').addEventListener('click', () => { 
+    //     removeGameUIListeners(); 
+    //     removeGameUIElementsDisplay(); 
+    //     clearGameListeners(); 
+    //     showScreen('start'); 
+    // });
     document.getElementById('back-to-menu-from-win-btn').addEventListener('click', () => { 
-        removeGameUI(); // 回到主選單時隱藏遊戲 UI
-        clearGameListeners(); 
-        stopConfetti(); // 勝利畫面回主選單，停止彩帶
+        removeGameUIListeners(); // Remove UI listeners
+        removeGameUIElementsDisplay(); // Hide UI elements
+        clearGameListeners(); // Additional cleanup
+        stopConfetti(); // Stop confetti animation
         showScreen('start'); 
     });
+
+    // These click listeners are for desktop (or as fallback for touch, though touchstart is preferred)
+    // They are attached once DOMContentLoaded, and are always active if buttons are displayed.
     placeBombBtn.addEventListener('click', placeBomb);
-    shootDartBtn.addEventListener('click', shootDart); // 新增飛鏢按鈕事件
+    shootDartBtn.addEventListener('click', shootDart);
+
     notificationCloseBtn.addEventListener('click', hideNotification);
 
     isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     
-    // 初始載入時只顯示開始畫面，不顯示遊戲 UI
+    // Initial display: only start screen, no game UI
     showScreen('start');
 });
 </script>
