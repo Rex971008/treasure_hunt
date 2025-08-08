@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>父親節大冒險！</title>
+    <style>
+        :root {
+            --wall-color: #2c3e50; --path-color: #ecf0f1; --start-color: #3498db;
+            --treasure-color: #f1c40f; --player-size: 28px; --cell-size: 40px;
+            --primary-bg: #34495e; --text-color: #ffffff; --button-bg: #2ecc71;
+            --button-hover-bg: #27ae60; --danger-bg: #e74c3c; --dark-color: #1a2531;
+            --visible-transition: background-color 0.4s ease, opacity 0.4s ease;
+        }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif; background-color: var(--primary-bg); color: var(--text-color); overflow: hidden; -webkit-user-select: none; user-select: none; }
+        .screen { display: none; width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; text-align: center; box-sizing: border-box; padding: 20px; animation: fadeIn 0.5s ease-in-out; position: relative; }
+        .screen.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        h1 { font-size: 3em; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        h2 { font-size: 2em; margin-bottom: 30px; }
+        p { font-size: 1.2em; margin-top: 20px; line-height: 1.6; }
+        .button { background-color: var(--button-bg); color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 1.2em; cursor: pointer; margin: 10px; transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .button.danger { background-color: var(--danger-bg); }
+        .button.danger:hover { background-color: #c0392b; }
+        .button:hover:not(:disabled) { background-color: var(--button-hover-bg); transform: translateY(-2px); }
+        .button:active:not(:disabled) { transform: translateY(1px); }
+        #game-container { width: 100vw; height: 100vh; border: none; background-color: var(--dark-color); position: relative; overflow: hidden; }
+        #in-game-ui { position: absolute; top: 15px; right: 15px; z-index: 20; display: flex; align-items: center; gap: 15px; }
+        #bomb-counter, #dart-counter { background-color: rgba(0,0,0,0.5); padding: 8px 15px; border-radius: 8px; font-size: 1.5em; display: flex; align-items: center; gap: 8px; }
+        #bomb-count-text, #dart-count-text { font-weight: bold; }
+
+        /* 顯示找到的字樣 */
+        #found-chars-display {
+            background-color: rgba(0,0,0,0.5);
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            position: absolute; /* Changed to absolute for consistent positioning */
+            top: 15px;
+            left: 15px;
+            color: var(--treasure-color);
+            font-weight: bold;
+        }
+        #found-chars-display span {
+            min-width: 1em; /* 確保字符有足夠的空間 */
+            text-align: center;
+            display: inline-block;
+        }
+
+        #place-bomb-btn, #shoot-dart-btn { /* Combined styles for both action buttons */
+            position: absolute;
+            width: 70px; height: 70px;
+            border-radius: 50%;
+            font-size: 2.5em; padding: 0;
+            z-index: 100;
+            background-color: rgba(52, 73, 94, 0.7);
+            display: flex; /* Always display for desktop, controlled for touch by JS */
+            justify-content: center; align-items: center;
+        }
+        #place-bomb-btn { bottom: 40px; right: 40px; }
+        #shoot-dart-btn { bottom: 120px; right: 40px; } /* Positioned above bomb button */
+
+        #place-bomb-btn:hover:not(:disabled),
+        #shoot-dart-btn:hover:not(:disabled) { background-color: rgba(44, 62, 80, 1); }
+
+        #maze { position: absolute; display: grid; }
+        #player { width: var(--player-size); height: var(--player-size); background-size: cover; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        .monster { width: var(--player-size); height: var(--player-size); background-size: cover; border-radius: 8px; position: absolute; z-index: 9; transition: transform 0.1s linear, filter 0.5s ease, opacity 0.5s ease; opacity: 0; }
+        .monster.visible { opacity: 1; }
+        
+        /* 統一中心定位，JS 只負責設定 left/top */
+        .bomb, .explosion, .dart, .treasure {
+            position: absolute;
+            width: var(--cell-size);
+            height: var(--cell-size);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transform: translate(-50%, -50%); /* 保持元素中心在格子中心 */
+            box-sizing: border-box; /* 確保 padding/border 不會撐大元素 */
+        }
+        .bomb { font-size: 28px; opacity: 0.9; z-index: 7; }
+        /* 爆炸特效樣式 */
+        .explosion { font-size: 36px; z-index: 50; pointer-events: none; animation: explosion-anim 0.5s ease-out forwards; }
+        @keyframes explosion-anim { from { transform: scale(0.5); opacity: 1; } to { transform: scale(2); opacity: 0; } }
+
+        /* 飛鏢樣式 */
+        .dart {
+            font-size: 2em; /* Dart emoji size */
+            z-index: 12; /* Above player/monsters */
+            transition: none; /* Dart should not animate with transform */
+        }
+        
+        /* 寶藏元素樣式 */
+        .treasure {
+            width: var(--player-size);
+            height: var(--player-size);
+            z-index: 8;
+            opacity: 0; /* Initially hidden, becomes visible with FOV */
+            background-color: var(--treasure-color); /* Add a background */
+            border-radius: 50%; /* Make it round */
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            color: var(--primary-bg); /* Text color contrasting with background */
+            font-weight: bold;
+        }
+        .treasure.visible {
+            opacity: 1;
+            transition: var(--visible-transition);
+        }
+        /* 已找到的寶藏，透明度降低 */
+        .treasure.found-item {
+            opacity: 0.5;
+            transition: opacity 0.5s ease;
+        }
+
+        .grid-cell { width: var(--cell-size); height: var(--cell-size); transition: var(--visible-transition); }
+        .wall { background-color: var(--wall-color); opacity: 0.5; }
+        .path, .start, .treasure-location { background-color: var(--dark-color); }
+        .grid-cell.visible:not(.wall) { background-color: var(--path-color); }
+        .grid-cell.start.visible { background-color: var(--start-color); }
+        .grid-cell.treasure-location.visible { background-color: var(--treasure-color); }
+        
+        /* 勝利畫面佈局 */
+        #win-screen {
+            position: relative;
+            /* Ensure children are positioned correctly */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden; /* Hide confetti overflow */
+        }
+        #riddle-box {
+            background: rgba(0,0,0,0.7); /* Make background darker for contrast */
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 600px;
+            position: relative; /* Ensure it's above canvas */
+            z-index: 1;
+        } 
+
+        #joystick-container { position: absolute; bottom: 40px; left: 40px; width: 150px; height: 150px; display: none; z-index: 100; user-select: none; -webkit-user-select: none; }
+        #joystick-base { position: relative; width: 100%; height: 100%; background-color: rgba(52, 73, 94, 0.5); border-radius: 50%; border: 3px solid rgba(236, 240, 241, 0.5); }
+        #joystick-handle { position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; background-color: rgba(52, 152, 219, 0.8); border-radius: 50%; transform: translate(-50%, -50%); transition: transform 0.1s ease-out; }
+        .notification-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: none; justify-content: center; align-items: center; z-index: 1000; animation: fadeIn 0.3s ease; }
+        .notification-overlay.active { display: flex; }
+        .notification-box { background: var(--primary-bg); padding: 20px 30px; border-radius: 15px; text-align: center; max-width: 90%; width: 450px; border: 2px solid var(--button-bg); box-shadow: 0 5px 15px rgba(0,0,0,0.5); transform: scale(0.9); opacity: 0; transition: transform 0.3s ease-out, opacity 0.3s ease-out; }
+        .notification-overlay.active .notification-box { transform: scale(1); opacity: 1; }
+        .notification-box p { font-size: 1.3em; margin-bottom: 25px; color: var(--text-color); }
+        
+        /* 彩帶canvas */
+        #confetti-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0; /* Behind riddle-box */
+            pointer-events: none; /* Allow clicks on buttons beneath */
+        }
+
+        /* 遊戲結束畫面影片背景 */
+        #game-over-screen {
+            position: relative; /* Ensure content is positioned relative to this */
+            display: none; /* Initially hidden */
+        }
+        #game-over-screen.active {
+            display: flex;
+        }
+        #game-over-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 確保影片覆蓋整個區域，不變形 */
+            z-index: -1; /* 放置在內容之後 */
+        }
+        /* 確保結束畫面的文字和按鈕在影片之上且可讀 */
+        #game-over-screen h1,
+        #game-over-screen p,
+        #game-over-screen .button {
+            position: relative; /* 將這些元素提升到影片上方 */
+            z-index: 1;
+            background: rgba(0,0,0,0.6); /* 給內容一個半透明背景以提高可讀性 */
+            padding: 15px 30px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="start-screen" class="screen active"><h1>父親節大冒險</h1><h2>親愛的爸爸，父親節快樂！</h2><p>在迷宮深處，藏著一份給你的父親節驚喜...<br>請勇敢地去尋找它吧！</p><button id="start-game-btn" class="button">開始冒險！</button></div>
+    <div id="game-screen" class="screen">
+        <div id="game-container">
+            <div id="maze"></div>
+            <div id="player"></div>
+            <!-- 寶藏元素將由 JS 動態創建，不再有單一的 #treasure -->
+            <div id="in-game-ui">
+                <div id="bomb-counter">💣<span id="bomb-count-text">10</span></div>
+                <!-- 新增：顯示找到的字樣 -->
+                <div id="found-chars-display">
+                    <span id="char-0">_</span><span id="char-1">_</span><span id="char-2">_</span>
+                </div>
+                <!-- 新增：飛鏢數量顯示 -->
+                <div id="dart-counter">🪃<span id="dart-count-text">5</span></div>
+                <button id="exit-game-btn" class="button danger">放棄挑戰</button>
+            </div>
+            <div id="joystick-container"><div id="joystick-base"><div id="joystick-handle"></div></div></div>
+            <button id="place-bomb-btn" class="button">💣</button>
+            <button id="shoot-dart-btn" class="button">🪃</button> <!-- 新增飛鏢按鈕 -->
+        </div>
+    </div>
+    <div id="win-screen" class="screen">
+        <canvas id="confetti-canvas"></canvas> <!-- 新增：彩帶canvas -->
+        <div id="riddle-box">
+            <h1>恭喜！你找到了全部禮物！</h1>
+            <p>親愛的爸爸，祝您父親節快樂！</p>
+            <p style="color: var(--treasure-color); font-weight: bold; font-size: 1.4em;">
+                感謝您一直以來為家庭帶來的<br>
+                溫暖、安全與智慧！<br>
+                祝您健康平安、事事順心！
+            </p>
+            <button id="back-to-menu-from-win-btn" class="button">回到開始畫面</button>
+        </div>
+    </div>
+    <div id="game-over-screen" class="screen">
+        <video id="game-over-video" autoplay loop muted playsinline>
+            <source src="images/gameover_bg.mp4" type="video/mp4">
+            <!-- 您可以添加其他影片格式以提高兼容性，例如： -->
+            <!-- <source src="images/gameover_bg.webm" type="video/webm"> -->
+            您的瀏覽器不支持影片播放。
+        </video>
+        <h1>哎呀！被抓到了！</h1>
+        <p>別灰心，冒險總是充滿挑戰，正如人生一般。</p>
+        <button id="retry-btn" class="button">沒問題，怎麼可能會放棄！</button><button id="back-to-menu-btn" class="button">回到開始畫面</button></div>
+    <div id="notification-overlay" class="notification-overlay"><div id="notification-box"><p id="notification-text"></p><button id="notification-close-btn" class="button">了解！</button></div></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 變數宣告區 ---
+    const screens = { start: document.getElementById('start-screen'), game: document.getElementById('game-screen'), win: document.getElementById('win-screen'), gameOver: document.getElementById('game-over-screen') };
+    const mazeEl = document.getElementById("maze"), playerEl = document.getElementById("player"), gameContainer = document.getElementById("game-container"), joystickContainer = document.getElementById("joystick-container"), joystickHandle = document.getElementById("joystick-handle");
+    const bombCountText = document.getElementById("bomb-count-text"), placeBombBtn = document.getElementById("place-bomb-btn");
+    const dartCountText = document.getElementById("dart-count-text"), shootDartBtn = document.getElementById("shoot-dart-btn"); // 新增飛鏢 UI
+    const notificationOverlay = document.getElementById("notification-overlay"), notificationText = document.getElementById("notification-text"), notificationCloseBtn = document.getElementById("notification-close-btn");
+    const gameOverVideo = document.getElementById("game-over-video"); // 遊戲結束影片元素
+    
+    // 找到的字樣 UI 元素
+    const foundCharsDisplay = document.getElementById("found-chars-display");
+    const charSpans = [
+        document.getElementById("char-0"),
+        document.getElementById("char-1"),
+        document.getElementById("char-2")
+    ];
+
+    // --- 遊戲狀態與設定 ---
+    const TREASURE_CHARS = ["安", "全", "帽"]; // 定義要找的字
+    // 持久化狀態：記錄哪些字已經被找到了。只有從開始畫面重新開始才會重置。
+    let foundCharactersPersistent = new Array(TREASURE_CHARS.length).fill(false);
+
+    let gameState = {
+        mazeData: [],
+        playerPos: { x: 0, y: 0 },
+        treasures: [], // 寶藏陣列: [{pos: {x,y}, char: '安', found: false, id: 'treasure-安'}, ...]
+        monsters: [],
+        bombsRemaining: 0,
+        placedBombs: [],
+        dartsRemaining: 0, // 新增飛鏢數量
+        activeDarts: [], // 追蹤飛行中的飛鏢
+        foundTreasuresCount: 0, // 當前遊戲回合中找到的寶藏數量
+        foundChars: ['', '', ''], // 當前遊戲回合中找到的字樣，用於顯示
+        playerLastDirection: 'right', // 記錄玩家最後一次移動的方向，用於發射飛鏢
+    };
+    let gameSession = { currentMoveSpeed: 120, isPaused: false };
+    let playerMovement = { currentDirection: null, queuedDirection: null, moveInterval: null, lastPos: { x: -1, y: -1 } };
+    
+    const levelConfig = { w: 15, h: 10, m: 5, initialBombs: 10, initialDarts: 5 }; // 新增初始飛鏢數量
+    const FOV_RADIUS = 10;
+    // 怪物速度減慢 (值越大越慢)
+    const MONSTER_TIERS = [ 
+        {level:1,colorFilter:"hue-rotate(0deg) saturate(0.8)",speed:1200}, // 更慢
+        {level:2,colorFilter:"hue-rotate(90deg) saturate(1.2)",speed:900}, 
+        {level:3,colorFilter:"hue-rotate(200deg) saturate(1.5)",speed:600} 
+    ];
+    let isTouchDevice = false;
+
+    // 彩帶特效相關變數
+    let confettiCanvas, confettiCtx, confettiParticles = [], confettiAnimationId;
+
+    // --- 核心功能 ---
+    function showScreen(screenName) { 
+        Object.values(screens).forEach(s => s.classList.remove('active')); 
+        if(screens[screenName]) {
+            screens[screenName].classList.add('active');
+            // 處理遊戲結束影片播放
+            if (screenName === 'gameOver' && gameOverVideo) {
+                gameOverVideo.play();
+            } else if (gameOverVideo) {
+                gameOverVideo.pause();
+                gameOverVideo.currentTime = 0; // 重置影片到開頭
+            }
+        }
+    }
+    function seededRandom(seed) { let state = seed % 2147483647; if (state <= 0) state += 2147483646; return function() { state = state * 16807 % 2147483647; return (state - 1) / 2147483646; } }
+
+    // --- 遊戲主循環 ---
+    function mainGameLoop() {
+        if (gameSession.isPaused) return;
+
+        // 玩家移動邏輯
+        if (playerMovement.queuedDirection && canMove(gameState.playerPos, playerMovement.queuedDirection)) { playerMovement.currentDirection = playerMovement.queuedDirection; playerMovement.queuedDirection = null; }
+        if (canMove(gameState.playerPos, playerMovement.currentDirection)) {
+            let newPos = { ...gameState.playerPos };
+            const move = playerMovement.currentDirection;
+            if (move === 'up') newPos.y--; else if (move === 'down') newPos.y++; else if (move === 'left') newPos.x--; else if (move === 'right') newPos.x++;
+            gameState.playerPos = newPos;
+            centerViewOnPlayer(true);
+        } else { playerMovement.currentDirection = null; }
+        
+        // 視野更新及上次移動方向記錄
+        if (playerMovement.lastPos.x !== gameState.playerPos.x || playerMovement.lastPos.y !== gameState.playerPos.y) {
+            computeFov();
+            updateFovDisplay();
+            playerMovement.lastPos = {...gameState.playerPos};
+            if (playerMovement.currentDirection) { // 更新玩家最後一次移動的方向
+                gameState.playerLastDirection = playerMovement.currentDirection;
+            }
+        }
+        
+        const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
+        // 怪物移動邏輯
+        for (const monster of gameState.monsters) { 
+            // 如果怪物在視野外，且沒有上次已知位置，則停止追逐，讓它返回生成點
+            if (!visibleCells.has(`${monster.pos.x},${monster.pos.y}`) && monster.state === "CHASING" && !monster.lastKnownPlayerPos) {
+                 monster.state = "RETURNING"; 
+            }
+
+            monster.moveCooldown += gameSession.currentMoveSpeed;
+            if (monster.moveCooldown >= monster.speed) { 
+                updateSingleMonsterAI(monster);
+                const monsterEl = document.getElementById(`monster-${monster.id}`);
+                if (monsterEl) monsterEl.style.transform = `translate(${monster.pos.x * cellSize}px, ${monster.pos.y * cellSize}px)`;
+                monster.moveCooldown = 0; 
+            }
+        }
+        
+        checkBombCollisions();
+        checkPlayerPosition(); // 這會檢查寶藏和怪物碰撞
+    }
+    
+    function pauseGame() { gameSession.isPaused = true; }
+    function resumeGame() { gameSession.isPaused = false; }
+
+    // --- 怪物 AI ---
+    function updateSingleMonsterAI(monster) {
+        const playerVisible = isPlayerVisible(monster.pos, gameState.playerPos);
+        switch (monster.state) {
+            case "IDLE": 
+                if(playerVisible) monster.state="CHASING"; 
+                break;
+            case "CHASING": 
+                if(playerVisible) { monster.lastKnownPlayerPos={...gameState.playerPos} } 
+                else { monster.state="SEARCHING" } 
+                break;
+            case "SEARCHING": 
+                if(playerVisible) { monster.state="CHASING" } 
+                else if(monster.pos.x===monster.lastKnownPlayerPos?.x&&monster.pos.y===monster.lastKnownPlayerPos?.y) { monster.state="RETURNING" } 
+                break;
+            case "RETURNING": 
+                if(monster.pos.x===monster.spawnPos.x&&monster.pos.y===monster.spawnPos.y) { monster.state="IDLE" } 
+                break;
+        }
+        let targetPos = null;
+        if(monster.state==="CHASING") targetPos = gameState.playerPos;
+        else if(monster.state==="SEARCHING") targetPos = monster.lastKnownPlayerPos;
+        else if(monster.state==="RETURNING") targetPos = monster.spawnPos;
+        
+        if (targetPos) { 
+            const path = findPath(monster.pos, targetPos); 
+            if (path && path.length > 1) { 
+                monster.pos = path[1]; 
+            } else if (monster.state === "SEARCHING" && !path) {
+                // 如果在 SEARCHING 狀態但找不到路徑，可能是玩家從未知的點移走，或目標點被阻擋，此時讓怪物返回
+                monster.state = "RETURNING";
+            }
+        }
+    }
+
+    function checkPlayerPosition() {
+        if (gameSession.isPaused) return;
+
+        // 1. 檢查是否找到寶藏（字）
+        for (let i = 0; i < gameState.treasures.length; i++) {
+            const treasure = gameState.treasures[i];
+            // 只有未找到的寶藏才能被收集
+            if (!treasure.found && gameState.playerPos.x === treasure.pos.x && gameState.playerPos.y === treasure.pos.y) {
+                
+                treasure.found = true; // 標記為當前遊戲中已找到
+                gameState.foundTreasuresCount++; // 當前遊戲回合找到的數量增加
+                
+                // 找到該字在 TREASURE_CHARS 中的索引
+                const charIndex = TREASURE_CHARS.indexOf(treasure.originalChar); // 使用 originalChar
+                if (charIndex !== -1) {
+                    gameState.foundChars[charIndex] = treasure.originalChar; // 更新當前遊戲的顯示字樣
+                    foundCharactersPersistent[charIndex] = true; // 更新持久化狀態
+                    updateFoundCharsDisplay(); // 更新 UI 顯示
+                }
+                
+                // 更新已找到的寶藏的外觀，從 🎁 變為 📦
+                const treasureEl = document.getElementById(treasure.id);
+                if (treasureEl) {
+                    treasureEl.textContent = '📦';
+                    treasureEl.classList.add('found-item'); // 添加樣式讓它變暗/不同
+                }
+                
+                showNotification(`恭喜你找到了「${treasure.originalChar}」！`); // 顯示找到哪個字的通知
+                
+                // 如果所有預設的寶藏都已經被找到 (包括之前回合找到的)
+                if (foundCharactersPersistent.every(isFound => isFound)) {
+                    winGame();
+                    return; // 遊戲結束
+                }
+            }
+        }
+
+        // 2. 檢查是否被怪物抓到
+        for (const monster of gameState.monsters) { 
+            // 修正：檢查玩家的 X 和 Y 座標是否都與怪物相同
+            if (monster.pos.x === gameState.playerPos.x && monster.pos.y === gameState.playerPos.y) { 
+                gameOver(); 
+                return; 
+            } 
+        }
+    }
+
+    // --- 遊戲流程 ---
+    function winGame() { 
+        clearGameListeners(); 
+        showScreen("win"); 
+        initConfetti(); // 初始化彩帶canvas
+        drawConfetti(); // 開始彩帶動畫
+    }
+    function gameOver() { clearGameListeners(); showScreen("gameOver"); }
+
+    function startGame(resetPersistent = true) { // 增加一個參數，控制是否重置持久化狀態
+        clearGameListeners();
+        gameState.bombsRemaining = levelConfig.initialBombs;
+        gameState.placedBombs = [];
+        gameState.dartsRemaining = levelConfig.initialDarts; // 初始化飛鏢數量
+        gameState.activeDarts = []; // 清空飛行中的飛鏢
+        gameState.foundTreasuresCount = 0; // 重置當前遊戲回合的寶藏計數
+        gameState.foundChars = ['', '', '']; // 重置當前遊戲回合的字樣顯示
+        gameState.playerLastDirection = 'right'; // 重置玩家最後方向
+
+        if (resetPersistent) { // 只有當從開始畫面點擊時才重置持久化狀態
+            foundCharactersPersistent.fill(false);
+        }
+
+        // 根據持久化狀態初始化 gameState.foundChars 和 gameState.foundTreasuresCount
+        TREASURE_CHARS.forEach((char, index) => {
+            if (foundCharactersPersistent[index]) {
+                gameState.foundChars[index] = char;
+                // 注意這裡不應該增加 foundTreasuresCount，因為它只計算當前回合找到的。
+                // 總通關進度由 foundCharactersPersistent 決定。
+            }
+        });
+        // 重新計算 foundTreasuresCount 以確保正確反映持久化狀態中已找到的字
+        gameState.foundTreasuresCount = foundCharactersPersistent.filter(Boolean).length;
+
+
+        updateBombUI();
+        updateDartUI(); // 更新飛鏢 UI
+        updateFoundCharsDisplay(); // 根據初始化後的 gameState.foundChars 更新 UI
+        
+        gameSession = { currentMoveSpeed: 120, isPaused: false };
+        playerMovement = { currentDirection: null, queuedDirection: null, moveInterval: null, lastPos: {x:-1, y:-1} };
+        const playerSeed = 'Yen-Lin-Birthday-Hero';
+        playerEl.style.backgroundImage = `url(https://api.dicebear.com/8.x/adventurer/svg?seed=${playerSeed}&radius=50)`;
+        
+        renderMaze(); // 這會呼叫 placeTreasureAndMonsters()
+        computeFov();
+        updateFovDisplay();
+        showScreen('game');
+        centerViewOnPlayer(false);
+        
+        document.addEventListener('keydown', handleKeyDown); document.addEventListener('keyup', handleKeyUp);
+        // 搖桿和按鈕的顯示邏輯在 startGame 和 retry 時都會執行
+        setupGameUIForDevice(); 
+        playerMovement.moveInterval = setInterval(mainGameLoop, gameSession.currentMoveSpeed);
+
+        setTimeout(() => {
+            // 修正開始提示，不顯示字
+            showNotification(`父親節快樂！找到三個隱藏的禮物，即可通關！並為你準備了${levelConfig.initialBombs}個炸彈 (按空白鍵或點擊右下角按鈕使用)，以及${levelConfig.initialDarts}個飛鏢 (按 F 鍵或點擊右下角按鈕使用)！`);
+        }, 500);
+    }
+    
+    // --- 迷宮生成與渲染 ---
+    function renderMaze() {
+        mazeEl.innerHTML = ""; // 清空舊迷宮
+        gameState.monsters = [];
+        gameState.treasures = []; // 清空舊寶藏 (這將在 placeTreasureAndMonsters 中重新填充)
+        gameState.mazeData = generateMaze(levelConfig.w, levelConfig.h, Date.now());
+        placeTreasureAndMonsters(); // 放置寶藏和怪物
+
+        const mazeWidth = gameState.mazeData[0].length;
+        const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
+        mazeEl.style.gridTemplateColumns = `repeat(${mazeWidth}, ${cellSize}px)`;
+        let content = "";
+        gameState.mazeData.forEach((row, y) => {
+            row.forEach((cellType, x) => {
+                let cellClass = "";
+                if (cellType === "S") { gameState.playerPos = { x, y }; cellClass = "start"; }
+                else if (cellType === "W") cellClass = "wall";
+                else if (cellType === "P") cellClass = "path";
+                else if (cellType === "T") { cellClass = "treasure-location"; } // 寶藏位置的背景色
+                content += `<div class="grid-cell ${cellClass}" id="cell-${x}-${y}"></div>`;
+            })
+        });
+        mazeEl.innerHTML = content;
+        
+        // 渲染怪物
+        gameState.monsters.forEach(monster => {
+            const el = document.createElement("div");
+            el.id = `monster-${monster.id}`;
+            el.className = "monster";
+            el.style.backgroundImage = `url(https://api.dicebear.com/8.x/bottts-neutral/svg?seed=${monster.id}&radius=8&backgroundColor=d1d1d1)`;
+            el.style.transform = `translate(${monster.pos.x * cellSize}px, ${monster.pos.y * cellSize}px)`;
+            el.style.filter = monster.colorFilter;
+            mazeEl.appendChild(el);
+        });
+
+        // 渲染寶藏 (新的邏輯，每個寶藏獨立創建)
+        gameState.treasures.forEach(treasure => {
+            // 檢查 treasure.pos 是否存在，避免錯誤
+            if (!treasure.pos) {
+                console.warn(`Treasure ${treasure.originalChar} has no position and will not be rendered.`);
+                return; 
+            }
+            const el = document.createElement("div");
+            el.id = treasure.id;
+            el.className = "treasure";
+            el.textContent = treasure.displayChar; // 顯示 🎁 或 📦
+            // 修正寶藏定位，使其中心位於格子中心
+            el.style.left = `${treasure.pos.x * cellSize + cellSize / 2}px`;
+            el.style.top = `${treasure.pos.y * cellSize + cellSize / 2}px`;
+            if (treasure.found) { // 如果這個寶藏已經在持久化狀態中被找到，給它一個特殊樣式
+                el.classList.add('found-item');
+            }
+            mazeEl.appendChild(el);
+        });
+    }
+
+    // --- 怪物與寶箱放置 ---
+    function placeTreasureAndMonsters() {
+        const rng = seededRandom(Date.now());
+        let allDeadEnds = [];
+
+        // 找出所有距離起點夠遠的死路
+        for (let y = 1; y < gameState.mazeData.length - 1; y++) {
+            for (let x = 1; x < gameState.mazeData[y].length - 1; x++) {
+                if (gameState.mazeData[y][x] === 'P') {
+                    let wallCount = 0;
+                    if (gameState.mazeData[y-1][x] === 'W') wallCount++;
+                    if (gameState.mazeData[y+1][x] === 'W') wallCount++;
+                    if (gameState.mazeData[y][x-1] === 'W') wallCount++;
+                    if (gameState.mazeData[y][x+1] === 'W') wallCount++;
+                    if (wallCount >= 3) {
+                        if (getDistance({ x, y }, { x: 1, y: 1 }) > 5) { // 確保距離起點夠遠
+                            allDeadEnds.push({x, y});
+                        }
+                    }
+                }
+            }
+        }
+        allDeadEnds.sort(() => rng() - 0.5); // 隨機打亂死路順序
+
+        gameState.treasures = [];
+        const treasuresToPlaceInThisRound = []; // 當前回合需要實際放置的禮物 (未找到的)
+        const treasuresAlreadyFound = []; // 之前已經找到的禮物 (作為佔位符)
+
+        // 1. 處理所有寶藏：已找到的作為佔位符，未找到的準備放置
+        TREASURE_CHARS.forEach((char, index) => {
+            if (!foundCharactersPersistent[index]) {
+                // 如果這個字還沒找到，就準備在迷宮中放置它
+                treasuresToPlaceInThisRound.push({ originalChar: char, id: `treasure-${char}`, found: false, displayChar: '🎁' });
+            } else {
+                // 如果已經找到，作為一個已打開的空盒子佔位
+                treasuresAlreadyFound.push({ originalChar: char, id: `treasure-${char}`, found: true, displayChar: '📦' });
+            }
+        });
+        
+        // 將未找到的寶藏隨機打亂，以便分配到死路
+        treasuresToPlaceInThisRound.sort(() => rng() - 0.5);
+
+        // 2. 優先為當前回合未找到的寶藏分配位置
+        treasuresToPlaceInThisRound.forEach(t => {
+            if (allDeadEnds.length > 0) {
+                const tPos = allDeadEnds.pop();
+                t.pos = tPos;
+                gameState.mazeData[tPos.y][tPos.x] = "T"; // 標記為寶藏位置
+                gameState.treasures.push(t); // 將寶藏加入到遊戲狀態中
+            } else {
+                console.warn(`WARN: Not enough dead ends to place new treasure: ${t.originalChar}. It will not appear this round.`);
+            }
+        });
+
+        // 3. 為已找到的寶藏（佔位符）分配位置 (如果還有死路)
+        treasuresAlreadyFound.forEach(t => {
+            if (allDeadEnds.length > 0) {
+                const tPos = allDeadEnds.pop();
+                t.pos = tPos;
+                gameState.mazeData[tPos.y][tPos.x] = "T";
+                gameState.treasures.push(t); // 將已找到的寶藏加入到遊戲狀態中
+            } else {
+                console.warn(`WARN: Not enough dead ends for already found treasure: ${t.originalChar}. It will not appear on the map.`);
+                // 如果沒有足夠的死路來放置已找到的寶藏，它將不會顯示在地圖上
+            }
+        });
+
+
+        // 4. 放置怪物，只使用剩餘的死路
+        gameState.monsters = [];
+        for (let i = 0; i < levelConfig.m; i++) {
+            if (allDeadEnds.length > 0) { // 檢查是否還有死路可以放怪物
+                const spawnPoint = allDeadEnds.pop();
+                const tier = MONSTER_TIERS[Math.floor(rng() * MONSTER_TIERS.length)];
+                gameState.monsters.push({ ...tier, id: i, pos: { ...spawnPoint }, spawnPos: { ...spawnPoint }, state: 'IDLE', lastKnownPlayerPos: null, moveCooldown: 0 });
+            } else {
+                console.warn(`WARN: Not enough dead ends left for all ${levelConfig.m} monsters. Placed ${i} monsters.`);
+                break; // 沒有足夠的死路可以放怪物了
+            }
+        }
+    }
+
+    function generateMaze(w, h, seed) {
+        const rng = seededRandom(seed);
+        const grid = Array.from({ length: h * 2 + 1 }, () => Array(w * 2 + 1).fill("W"));
+        function carve(cx, cy) { const dirs = ["N", "S", "E", "W"].sort(() => rng() - .5); for (const d of dirs) { const[dx,dy]={N:[0,-2],S:[0,2],E:[2,0],W:[-2,0]}[d]; const nx=cx+dx, ny=cy+dy; if(ny>=0&&ny<h*2+1&&nx>=0&&nx<w*2+1&&grid[ny][nx]==="W"){grid[ny-dy/2][nx-dx/2]="P";grid[ny][nx]="P";carve(nx,ny)} } }
+        grid[1][1] = "P"; carve(1, 1); grid[1][1] = "S"; return grid;
+    }
+
+    // --- 炸彈與爆炸功能 ---
+    function placeBomb() {
+        if (gameSession.isPaused) return;
+        if (gameState.bombsRemaining <= 0) {
+            showNotification("你沒有炸彈了！");
+            return;
+        }
+        const {x, y} = gameState.playerPos;
+        if (gameState.placedBombs.some(bomb => bomb.x === x && bomb.y === y)) {
+            showNotification("這個位置已經有炸彈了！");
+            return;
+        }
+
+        gameState.bombsRemaining--;
+        updateBombUI();
+        
+        const bombPos = {x, y};
+        gameState.placedBombs.push(bombPos);
+
+        const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
+        const bombEl = document.createElement('div');
+        bombEl.id = `bomb-${bombPos.x}-${bombPos.y}`;
+        bombEl.className = 'bomb';
+        bombEl.textContent = '💣';
+        // 修正炸彈定位，使其中心位於格子中心
+        bombEl.style.left = `${bombPos.x * cellSize + cellSize / 2}px`;
+        bombEl.style.top = `${bombPos.y * cellSize + cellSize / 2}px`;
+        mazeEl.appendChild(bombEl);
+    }
+    
+    function updateBombUI() { bombCountText.textContent = gameState.bombsRemaining; }
+
+    function triggerExplosion(x, y) {
+        const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
+        const explosionEl = document.createElement('div');
+        explosionEl.className = 'explosion';
+        explosionEl.textContent = '💥';
+        // 修正爆炸定位，使其中心位於格子中心
+        explosionEl.style.left = `${x * cellSize + cellSize / 2}px`;
+        explosionEl.style.top = `${y * cellSize + cellSize / 2}px`;
+        mazeEl.appendChild(explosionEl);
+        setTimeout(() => { explosionEl.remove(); }, 500); // 動畫結束後移除
+    }
+
+    function checkBombCollisions() {
+        const monstersToRemove = new Set();
+        const bombsToRemove = [];
+
+        for (const monster of gameState.monsters) {
+            const bombIndex = gameState.placedBombs.findIndex(b => b.x === monster.pos.x && b.y === monster.pos.y);
+            if (bombIndex > -1) {
+                monstersToRemove.add(monster.id);
+                const bombPos = gameState.placedBombs[bombIndex];
+                bombsToRemove.push(bombPos);
+                triggerExplosion(bombPos.x, bombPos.y);
+            }
+        }
+
+        if (monstersToRemove.size > 0) {
+            // 移除怪物
+            gameState.monsters = gameState.monsters.filter(m => !monstersToRemove.has(m.id));
+            monstersToRemove.forEach(id => document.getElementById(`monster-${id}`)?.remove());
+
+            // 移除炸彈
+            gameState.placedBombs = gameState.placedBombs.filter(b => !bombsToRemove.some(br => br.x === b.x && br.y === b.y));
+            bombsToRemove.forEach(b => document.getElementById(`bomb-${b.x}-${b.y}`)?.remove());
+        }
+    }
+
+    // --- 飛鏢功能 ---
+    function updateDartUI() { dartCountText.textContent = gameState.dartsRemaining; }
+
+    function shootDart() {
+        if (gameSession.isPaused) return;
+        if (gameState.dartsRemaining <= 0) {
+            showNotification("你沒有飛鏢了！");
+            return;
+        }
+        // 捕捉玩家最後的移動方向，如果玩家還沒動，預設向右
+        const dartDirection = gameState.playerLastDirection;
+        if (!dartDirection) {
+            showNotification("請先移動一下，確定飛鏢方向！");
+            return;
+        }
+
+        gameState.dartsRemaining--;
+        updateDartUI();
+
+        let dartPos = { ...gameState.playerPos };
+        const dartId = `dart-${Date.now()}`;
+        const dartEl = document.createElement('div');
+        dartEl.id = dartId;
+        dartEl.className = 'dart';
+        dartEl.textContent = '🪃'; // 飛鏢 emoji
+        mazeEl.appendChild(dartEl);
+
+        const dart = { id: dartId, pos: dartPos, direction: dartDirection, element: dartEl, intervalId: null };
+        gameState.activeDarts.push(dart);
+
+        const dartMoveSpeed = gameSession.currentMoveSpeed / 3; // 飛鏢速度比玩家快3倍
+
+        dart.intervalId = setInterval(() => {
+            if (gameSession.isPaused) return;
+
+            let nextPos = { ...dart.pos };
+            if (dart.direction === 'up') nextPos.y--;
+            else if (dart.direction === 'down') nextPos.y++;
+            else if (dart.direction === 'left') nextPos.x--;
+            else if (dart.direction === 'right') nextPos.x++;
+
+            // 檢查是否超出迷宮範圍或碰到牆壁
+            const mazeHeight = gameState.mazeData.length;
+            const mazeWidth = gameState.mazeData[0].length;
+            if (nextPos.x < 0 || nextPos.x >= mazeWidth ||
+                nextPos.y < 0 || nextPos.y >= mazeHeight ||
+                gameState.mazeData[nextPos.y][nextPos.x] === "W") { // 直接檢查下一個位置是否是牆壁
+                clearInterval(dart.intervalId);
+                dart.element.remove();
+                gameState.activeDarts = gameState.activeDarts.filter(d => d.id !== dart.id);
+                return;
+            }
+
+            dart.pos = nextPos;
+            const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim());
+            // 修正飛鏢定位，使其中心位於格子中心
+            dart.element.style.left = `${dart.pos.x * cellSize + cellSize / 2}px`;
+            dart.element.style.top = `${dart.pos.y * cellSize + cellSize / 2}px`;
+
+            // 檢查是否命中怪物
+            const monsterHitIndex = gameState.monsters.findIndex(m => m.pos.x === dart.pos.x && m.pos.y === dart.pos.y);
+            if (monsterHitIndex !== -1) {
+                const monsterId = gameState.monsters[monsterHitIndex].id;
+                document.getElementById(`monster-${monsterId}`)?.remove();
+                gameState.monsters.splice(monsterHitIndex, 1); // 從怪物陣列中移除
+                clearInterval(dart.intervalId);
+                dart.element.remove(); // 移除飛鏢元素
+                gameState.activeDarts = gameState.activeDarts.filter(d => d.id !== dart.id);
+                showNotification("怪物被飛鏢消滅了！");
+                return;
+            }
+        }, dartMoveSpeed);
+    }
+
+
+    // --- 通知功能 ---
+    function showNotification(message) { pauseGame(); notificationText.innerHTML = message; notificationOverlay.classList.add('active'); }
+    function hideNotification() { notificationOverlay.classList.remove('active'); resumeGame(); }
+
+    // --- 更新找到的字樣 UI ---
+    function updateFoundCharsDisplay() {
+        charSpans.forEach((span, index) => {
+            span.textContent = gameState.foundChars[index] || '_'; // 顯示已找到的字，或底線
+        });
+    }
+
+    // --- 彩帶特效功能 ---
+    function initConfetti() {
+        confettiCanvas = document.getElementById('confetti-canvas');
+        if (!confettiCanvas) return; 
+        confettiCtx = confettiCanvas.getContext('2d');
+        resizeConfettiCanvas();
+        window.addEventListener('resize', resizeConfettiCanvas);
+    }
+
+    function resizeConfettiCanvas() {
+        if (confettiCanvas) {
+            confettiCanvas.width = window.innerWidth;
+            confettiCanvas.height = window.innerHeight;
+        }
+    }
+
+    function createConfettiParticle() {
+        const side = Math.random() < 0.5 ? 'left' : 'right'; // 隨機從左或右側產生
+        const x = side === 'left' ? 0 : confettiCanvas.width;
+        const y = Math.random() * confettiCanvas.height; // 在整個高度範圍內隨機Y座標
+
+        const radius = Math.random() * 5 + 2;
+        const colors = ['#f1c40f', '#e67e22', '#e74c3c', '#2ecc71', '#3498db', '#9b59b6']; // 鮮豔的顏色
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        
+        // 初始速度：水平向內噴出，垂直向上微噴，然後受重力下落
+        const initialHorizontalSpeed = Math.random() * 8 + 3; // 較大的水平噴射速度
+        const initialVerticalSpeed = Math.random() * -5 - 1; // 負值使其向上噴射
+        const velocityX = initialHorizontalSpeed * (side === 'left' ? 1 : -1);
+        const velocityY = initialVerticalSpeed;
+        
+        const gravity = 0.08; // 較小的重力值，使其緩慢下落
+        const rotation = Math.random() * Math.PI * 2;
+        const rotationSpeed = Math.random() * 0.1 - 0.05; // 輕微旋轉
+        const opacity = 1;
+
+        return { x, y, radius, color, velocityX, velocityY, gravity, rotation, rotationSpeed, opacity };
+    }
+
+    function drawConfetti() {
+        if (!confettiCtx) return;
+        confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+
+        // 每幀添加新的粒子
+        for (let i = 0; i < 4; i++) { // 增加粒子生成速度
+            if (confettiParticles.length < 300) { // 增加總粒子數限制
+                confettiParticles.push(createConfettiParticle());
+            }
+        }
+
+        // 更新和繪製粒子
+        for (let i = confettiParticles.length - 1; i >= 0; i--) {
+            const p = confettiParticles[i];
+
+            p.x += p.velocityX;
+            p.y += p.velocityY;
+            p.velocityY += p.gravity; // 應用重力
+            p.rotation += p.rotationSpeed;
+            p.opacity -= 0.005; // 逐漸淡出
+
+            // 移除超出螢幕或已淡出的粒子
+            if (p.y > confettiCanvas.height + p.radius || p.x < -p.radius || p.x > confettiCanvas.width + p.radius || p.opacity <= 0) {
+                confettiParticles.splice(i, 1); 
+            } else {
+                confettiCtx.save();
+                confettiCtx.translate(p.x, p.y);
+                confettiCtx.rotate(p.rotation);
+                confettiCtx.globalAlpha = p.opacity;
+                confettiCtx.fillStyle = p.color;
+                // 繪製正方形彩帶
+                confettiCtx.fillRect(-p.radius, -p.radius, p.radius * 2, p.radius * 2); 
+                confettiCtx.restore();
+            }
+        }
+        confettiAnimationId = requestAnimationFrame(drawConfetti);
+    }
+
+    function stopConfetti() {
+        if (confettiAnimationId) {
+            cancelAnimationFrame(confettiAnimationId);
+            confettiAnimationId = null;
+        }
+        confettiParticles = []; // 清空粒子陣列
+        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height); // 清空canvas
+        window.removeEventListener('resize', resizeConfettiCanvas);
+    }
+
+    // --- 輔助函數 ---
+    function centerViewOnPlayer(animated = true) { const cellSize=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--cell-size").trim()),cW=gameContainer.clientWidth,cH=gameContainer.clientHeight;const mX=-gameState.playerPos.x*cellSize+cW/2-cellSize/2,mY=-gameState.playerPos.y*cellSize+cH/2-cellSize/2;mazeEl.style.transition=animated?`transform ${gameSession.currentMoveSpeed}ms linear`:"none";mazeEl.style.transform=`translate(${mX}px, ${mY}px)`}
+    let visibleCells = new Set();
+    function computeFov() { visibleCells.clear(); visibleCells.add(`${gameState.playerPos.x},${gameState.playerPos.y}`); const octants=[{xx:1,xy:0,yx:0,yy:1},{xx:0,xy:1,yx:1,yy:0},{xx:0,xy:-1,yx:1,yy:0},{xx:-1,xy:0,yx:0,yy:1},{xx:-1,xy:0,yx:0,yy:-1},{xx:0,xy:-1,yx:-1,yy:0},{xx:0,xy:1,yx:-1,yy:0},{xx:1,xy:0,yx:0,yy:-1}]; octants.forEach(o => castLight(1,1,0,o.xx,o.xy,o.yx,o.yy)); }
+    function castLight(row,start,end,xx,xy,yx,yy){ let newStart=0;if(start<end)return;let r2=FOV_RADIUS*FOV_RADIUS;for(let j=row;j<=FOV_RADIUS;j++){let dx=-j-1,dy=-j,blocked=!1;while(dx<=0){dx++;let mX=gameState.playerPos.x+dx*xx+dy*xy,mY=gameState.playerPos.y+dx*yx+dy*yy;if(mX<0||mX>=gameState.mazeData[0].length||mY<0||mY>=gameState.mazeData.length)continue;let lS=(dx-.5)/(dy+.5),rS=(dx+.5)/(dy-.5);if(start<rS)continue;else if(end>lS)break;if(dx*dx+dy*dy<r2)visibleCells.add(`${mX},${mY}`);let isWall=gameState.mazeData[mY]?.[mX]==="W";if(blocked){if(isWall){newStart=rS;continue}else{blocked=!1;start=newStart}}else{if(isWall&&j<FOV_RADIUS){blocked=!0;castLight(j+1,start,lS,xx,xy,yx,yy);newStart=rS}}}if(blocked)break}}
+    function updateFovDisplay() {
+        document.querySelectorAll(".grid-cell.visible").forEach(el=>el.classList.remove("visible"));
+        visibleCells.forEach(key=>{const cell=document.getElementById(`cell-${key.replace(',','-')}`);if(cell)cell.classList.add("visible")});
+        gameState.monsters.forEach(m=>{document.getElementById(`monster-${m.id}`)?.classList.toggle("visible",visibleCells.has(`${m.pos.x},${m.pos.y}`))});
+        // 更新多個寶藏的顯示
+        gameState.treasures.forEach(t => {
+            const treasureEl = document.getElementById(t.id);
+            if (treasureEl) {
+                // 只有未找到的寶藏才受 FOV 控制，已找到的寶藏會保持其 'found-item' 樣式和半透明狀態
+                if (!t.found) {
+                    treasureEl.classList.toggle("visible", visibleCells.has(`${t.pos.x},${t.pos.y}`));
+                } else {
+                    // 已找到的寶藏，只要在地圖上，就保持可見 (半透明)，不被 FOV 隱藏
+                    treasureEl.classList.add("visible");
+                }
+            }
+        });
+        // 更新飛行中的飛鏢顯示
+        gameState.activeDarts.forEach(d => {
+            const dartEl = document.getElementById(d.id);
+            if (dartEl) {
+                // 飛鏢不受 FOV 影響，一旦發射就始終可見
+                dartEl.classList.add("visible"); 
+            }
+        });
+    }
+    function canMove(pos,dir){let newPos={...pos};if(dir==="up")newPos.y--;else if(dir==="down")newPos.y++;else if(dir==="left")newPos.x--;else if(dir==="right")newPos.x++;return gameState.mazeData[newPos.y]?.[newPos.x]&&gameState.mazeData[newPos.y][newPos.x]!=="W"}
+    function getDistance(p1,p2){return Math.sqrt(Math.pow(p1.x-p2.x,2)+Math.pow(p1.y-p2.y,2))}
+    function findPath(start,end){const q=[[start]],visited=new Set([`${start.x},${start.y}`]),dirs=["up","down","left","right"];while(q.length>0){const path=q.shift(),pos=path[path.length-1];if(pos.x===end.x&&pos.y===end.y)return path;for(const dir of dirs){let next={...pos};if(dir==="up")next.y--;else if(dir==="down")next.y++;else if(dir==="left")next.x--;else if(dir==="right")next.x++;const key=`${next.x},${next.y}`;if(!visited.has(key)&&canMove(pos,dir)){visited.add(key);q.push([...path,next])}}}return null}
+    function isPlayerVisible(monsterPos,playerPos){if(getDistance(monsterPos,playerPos)>FOV_RADIUS)return!1;let x0=monsterPos.x,y0=monsterPos.y;const x1=playerPos.x,y1=playerPos.y;const dx=Math.abs(x1-x0),sx=x0<x1?1:-1;const dy=-Math.abs(y1-y0),sy=y0<y1?1:-1;let err=dx+dy,e2;while(!0){if(gameState.mazeData[y0]?.[x0]==="W")return!1;if(x0===x1&&y0===y1)break;e2=2*err;if(e2>=dy){err+=dy;x0+=sx}if(e2<=dx){err+=dx;y0+=sy}}return!0}
+    function handleKeyDown(e){ 
+        if (gameSession.isPaused) return; 
+        if (e.code === 'Space' || e.key === ' ') { 
+            e.preventDefault(); 
+            placeBomb(); 
+            return; 
+        }
+        // 新增飛鏢快捷鍵 (F 鍵 或 注音離)
+        if (e.key === 'f' || e.key === 'F' || e.key === '離') { 
+            e.preventDefault();
+            shootDart();
+            return;
+        }
+        const m={ArrowUp:"up",w:"up",ArrowDown:"down",s:"down",ArrowLeft:"left",a:"left",ArrowRight:"right",d:"right"},d=m[e.key]; 
+        if(!d)return; 
+        e.preventDefault(); 
+        playerMovement.queuedDirection=d; 
+        if(!playerMovement.currentDirection)playerMovement.currentDirection=d; 
+    }
+    function handleKeyUp(e){ 
+        if (gameSession.isPaused) return; 
+        const m={ArrowUp:"up",w:"up",ArrowDown:"down",s:"down",ArrowLeft:"left",a:"left",ArrowRight:"right",d:"right"},d=m[e.key];
+        if(d===playerMovement.queuedDirection)playerMovement.queuedDirection=null
+    }
+    let isJoystickDragging=!1,joystickOrigin={x:0,y:0},maxJoystickRadius=0;
+    function joystickTouchStart(e){
+        e.preventDefault();
+        isJoystickDragging=!0;
+        const r=joystickContainer.getBoundingClientRect();
+        joystickOrigin={x:r.left+r.width/2,y:r.top+r.height/2};
+        maxJoystickRadius=joystickContainer.offsetWidth/2-joystickHandle.offsetWidth/2;
+        joystickTouchMove(e)
+    }
+    function joystickTouchMove(e){
+        if(!isJoystickDragging)return;
+        e.preventDefault();
+        const t=e.touches[0];
+        let dx=t.clientX-joystickOrigin.x,dy=t.clientY-joystickOrigin.y;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist>maxJoystickRadius){dx=dx/dist*maxJoystickRadius;dy=dy/dist*maxJoystickRadius}
+        joystickHandle.style.transform=`translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
+        let d=null;
+        if(dist<20){playerMovement.currentDirection=null;playerMovement.queuedDirection=null;return}
+        if(Math.abs(dx)>Math.abs(dy)){d=dx>0?"right":"left"}else{d=dy>0?"down":"up"}
+        playerMovement.queuedDirection=d;
+        if(!playerMovement.currentDirection)playerMovement.currentDirection=d
+    }
+    function joystickTouchEnd(e){
+        if(!isJoystickDragging)return;
+        e.preventDefault();
+        isJoystickDragging=!1;
+        joystickHandle.style.transform="translate(-50%, -50%)";
+        playerMovement.currentDirection=null;
+        playerMovement.queuedDirection=null
+    }
+    
+    // 控制搖桿和按鈕的顯示
+    function setupGameUIForDevice() {
+        if (isTouchDevice) {
+            joystickContainer.style.display = 'block';
+            placeBombBtn.style.display = 'flex';
+            shootDartBtn.style.display = 'flex';
+            // 添加搖桿的觸摸事件監聽器
+            joystickContainer.addEventListener("touchstart",joystickTouchStart,{passive:!1}); 
+            document.addEventListener("touchmove",joystickTouchMove,{passive:!1}); 
+            document.addEventListener("touchend",joystickTouchEnd,{passive:!1}); 
+            document.addEventListener("touchcancel",joystickTouchEnd,{passive:!1}); 
+        } else { // Desktop
+            joystickContainer.style.display = 'none'; // 桌面不顯示搖桿
+            placeBombBtn.style.display = 'flex'; // 桌面顯示按鈕 (供點擊，或使用鍵盤)
+            shootDartBtn.style.display = 'flex';
+        }
+    }
+
+    function removeGameUI() {
+        // 隱藏所有遊戲相關的 UI 元素
+        joystickContainer.style.display = 'none';
+        placeBombBtn.style.display = 'none';
+        shootDartBtn.style.display = 'none';
+        // 移除搖桿的觸摸事件監聽器，避免在非遊戲畫面時觸發
+        joystickContainer.removeEventListener("touchstart",joystickTouchStart); 
+        document.removeEventListener("touchmove",joystickTouchMove); 
+        document.removeEventListener("touchend",joystickTouchEnd); 
+        document.removeEventListener("touchcancel",joystickTouchEnd); 
+    }
+
+    function clearGameListeners() { 
+        if(playerMovement.moveInterval) clearInterval(playerMovement.moveInterval); 
+        playerMovement.moveInterval = null; 
+        document.removeEventListener("keydown", handleKeyDown); 
+        document.removeEventListener("keyup", handleKeyUp); 
+        removeGameUI(); // 確保移除 UI 相關事件
+        // 清除所有飛行中的飛鏢的 interval 並移除元素
+        gameState.activeDarts.forEach(dart => {
+            clearInterval(dart.intervalId);
+            if (dart.element) dart.element.remove();
+        });
+        gameState.activeDarts = [];
+    }
+
+    // --- 事件監聽器與初始化 ---
+    document.getElementById('start-game-btn').addEventListener('click', () => {
+        setupGameUIForDevice(); // 進入遊戲畫面時顯示相應 UI
+        startGame(true); // 開始遊戲，重置持久化狀態
+    });
+    document.getElementById('retry-btn').addEventListener('click', () => { 
+        setupGameUIForDevice(); // 進入遊戲畫面時顯示相應 UI
+        clearGameListeners(); 
+        startGame(false); // 重試，不重置持久化狀態
+    });
+    document.getElementById('back-to-menu-btn').addEventListener('click', () => { 
+        removeGameUI(); // 回到主選單時隱藏遊戲 UI
+        clearGameListeners(); 
+        showScreen('start'); 
+    });
+    document.getElementById('exit-game-btn').addEventListener('click', () => { 
+        removeGameUI(); // 回到主選單時隱藏遊戲 UI
+        clearGameListeners(); 
+        showScreen('start'); 
+    });
+    document.getElementById('back-to-menu-from-win-btn').addEventListener('click', () => { 
+        removeGameUI(); // 回到主選單時隱藏遊戲 UI
+        clearGameListeners(); 
+        stopConfetti(); // 勝利畫面回主選單，停止彩帶
+        showScreen('start'); 
+    });
+    placeBombBtn.addEventListener('click', placeBomb);
+    shootDartBtn.addEventListener('click', shootDart); // 新增飛鏢按鈕事件
+    notificationCloseBtn.addEventListener('click', hideNotification);
+
+    isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    // 初始載入時只顯示開始畫面，不顯示遊戲 UI
+    showScreen('start');
+});
+</script>
+</body>
+</html>
